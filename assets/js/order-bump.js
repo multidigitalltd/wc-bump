@@ -5,6 +5,7 @@ jQuery( function ( $ ) {
 		var $item        = $checkbox.closest( '.order-bump-item' );
 		var productId    = $checkbox.data( 'product-id' );
 		var cartItemKey  = $checkbox.data( 'cart-item-key' ) || '';
+		var quantity     = $checkbox.data( 'quantity' ) || 1;
 		var toggle       = $checkbox.prop( 'checked' ) ? 'add' : 'remove';
 
 		$checkbox.prop( 'disabled', true );
@@ -16,6 +17,7 @@ jQuery( function ( $ ) {
 			product_id:    productId,
 			toggle:        toggle,
 			cart_item_key: cartItemKey,
+			quantity:      quantity,
 		} )
 		.done( function ( response ) {
 			if ( response.success ) {
@@ -28,7 +30,6 @@ jQuery( function ( $ ) {
 				}
 				$( document.body ).trigger( 'update_checkout' );
 			} else {
-				// revert on error
 				$checkbox.prop( 'checked', ! $checkbox.prop( 'checked' ) );
 			}
 		} )
