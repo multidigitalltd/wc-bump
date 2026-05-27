@@ -1,37 +1,37 @@
 /* ── Wrapper ─────────────────────────────────── */
 .wc-order-bumps-wrapper {
-	margin: 20px 0 10px;
+	margin: 24px 0 12px;
 	font-family: inherit;
 }
 
 .order-bumps-heading {
 	font-size: 1em;
-	font-weight: 600;
-	margin: 0 0 10px;
-	color: #333;
+	font-weight: 700;
+	margin: 0 0 12px;
+	color: #1a1a1a;
 }
 
 /* ── Card ────────────────────────────────────── */
 .order-bump-item {
 	position: relative;
-	border: 2px dashed var(--bump-border, #c8c8c8);
-	border-radius: 8px;
+	border: 1.5px solid var(--bump-border, #e2e8f0);
+	border-radius: 10px;
 	padding: 0;
-	margin-bottom: 10px;
-	background: var(--bump-bg, #fafafa);
-	transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+	margin-bottom: 12px;
+	background: var(--bump-bg, #ffffff);
+	box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.03);
+	transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
 	overflow: hidden;
 }
 
 .order-bump-item:hover {
-	border-color: var(--bump-border, #999);
-	box-shadow: 0 2px 10px rgba(0,0,0,.07);
+	border-color: var(--bump-border, #c4d0de);
+	box-shadow: 0 2px 12px rgba(0,0,0,.09);
 }
 
 .order-bump-item.is-added {
-	border-style: solid;
-	border-color: var(--bump-border, #5cb85c);
-	background: var(--bump-bg, #f5fbf5);
+	border-color: var(--bump-border, #16a34a);
+	background: var(--bump-bg, #f0fdf4);
 }
 
 .order-bump-item.is-loading {
@@ -42,17 +42,18 @@
 /* ── Badge ───────────────────────────────────── */
 .order-bump-badge {
 	display: inline-block;
-	background: var(--bump-badge-bg, #e74c3c);
+	background: var(--bump-badge-bg, #dc2626);
 	color: #fff;
-	font-size: 0.7em;
+	font-size: 0.68em;
 	font-weight: 700;
 	text-transform: uppercase;
-	letter-spacing: 0.06em;
-	padding: 3px 10px;
-	border-radius: 0 0 6px 0;
+	letter-spacing: 0.07em;
+	padding: 3px 10px 3px 12px;
+	border-radius: 0 0 8px 0;
 	position: absolute;
 	top: 0;
 	inset-inline-start: 0;
+	line-height: 1.8;
 }
 
 /* ── Body ────────────────────────────────────── */
@@ -60,11 +61,11 @@
 	display: flex;
 	align-items: flex-start;
 	gap: 14px;
-	padding: 16px 16px 12px;
+	padding: 16px 16px 14px;
 }
 
 .order-bump-item .order-bump-badge + .order-bump-body {
-	padding-top: 30px;
+	padding-top: 32px;
 }
 
 /* ── Image ───────────────────────────────────── */
@@ -73,12 +74,12 @@
 }
 
 .order-bump-image img {
-	width: 70px;
-	height: 70px;
+	width: 72px;
+	height: 72px;
 	object-fit: cover;
-	border-radius: 6px;
+	border-radius: 7px;
 	display: block;
-	border: 1px solid rgba(0,0,0,.08);
+	border: 1px solid rgba(0,0,0,.07);
 }
 
 /* ── Content ─────────────────────────────────── */
@@ -86,12 +87,12 @@
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 5px;
 }
 
 .order-bump-title {
 	font-weight: 700;
-	color: #1a1a1a;
+	color: #111827;
 	font-size: 0.97em;
 	line-height: 1.3;
 	margin: 0;
@@ -99,21 +100,24 @@
 
 .order-bump-description {
 	font-size: 0.83em;
-	color: #666;
-	line-height: 1.45;
+	color: #6b7280;
+	line-height: 1.5;
 	margin: 0;
 }
 
 /* ── CTA bullets ─────────────────────────────── */
 .order-bump-cta-list {
 	list-style: none;
-	margin: 3px 0 0;
+	margin: 2px 0 0;
 	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
 }
 
 .order-bump-cta-list li {
-	font-size: 0.83em;
-	color: #2c7a2c;
+	font-size: 0.82em;
+	color: #15803d;
 	font-weight: 500;
 	display: flex;
 	align-items: baseline;
@@ -122,8 +126,9 @@
 }
 
 .order-bump-cta-check {
-	color: #5cb85c;
+	color: #16a34a;
 	font-weight: 800;
+	font-size: 0.95em;
 	flex-shrink: 0;
 }
 
@@ -131,66 +136,66 @@
 .order-bump-price {
 	font-weight: 700;
 	font-size: 1em;
-	margin: 4px 0 0;
+	margin: 2px 0 0;
 }
 
-.order-bump-price del {
-	color: #aaa;
+.order-bump-price del,
+.order-bump-price del .woocommerce-Price-amount {
+	color: #9ca3af;
 	font-weight: 400;
 	margin-inline-end: 5px;
 }
 
-.order-bump-price ins {
+.order-bump-price ins,
+.order-bump-price ins .woocommerce-Price-amount {
 	text-decoration: none;
-	color: #e74c3c;
+	color: #dc2626;
 }
 
 /* ── CTA Button ──────────────────────────────── */
 .order-bump-btn {
 	display: block;
 	width: calc(100% - 32px);
-	margin: 0 16px 14px;
-	padding: 11px 18px;
-	background: var(--bump-btn-bg, #27ae60);
+	margin: 0 16px 16px;
+	padding: 12px 20px;
+	background: var(--bump-btn-bg, #16a34a);
 	color: var(--bump-btn-color, #ffffff) !important;
 	border: none;
-	border-radius: 6px;
+	border-radius: 7px;
 	font-family: inherit;
 	font-size: 0.97em;
 	font-weight: 700;
 	text-align: center;
 	cursor: pointer;
-	transition: filter 0.15s, transform 0.1s;
-	letter-spacing: 0.02em;
+	line-height: 1.4;
+	letter-spacing: 0.01em;
+	transition: filter 0.15s ease, transform 0.1s ease;
 }
 
 .order-bump-btn:hover:not(:disabled) {
-	filter: brightness(1.1);
+	filter: brightness(1.08);
 }
 
 .order-bump-btn:active:not(:disabled) {
-	transform: scale(0.98);
+	transform: scale(0.985);
 }
 
 .order-bump-btn.is-added {
-	background: var(--bump-btn-bg, #8db37a);
-	color: var(--bump-btn-color, #fff) !important;
+	background: var(--bump-btn-bg, #4b7c5e);
+	color: var(--bump-btn-color, #ffffff) !important;
 }
 
+.order-bump-btn:disabled,
 .order-bump-btn.is-loading {
-	opacity: 0.65;
-	cursor: wait;
-}
-
-.order-bump-btn:disabled {
+	opacity: 0.6;
 	cursor: not-allowed;
 }
 
 /* ── Urgency bar ─────────────────────────────── */
 .order-bump-urgency {
-	background: #fff3cd;
-	border-top: 1px solid #ffc107;
-	color: #856404;
+	background: #fffbeb;
+	border-top: 1px solid #fcd34d;
+	color: #92400e;
 	font-size: 0.82em;
 	font-weight: 600;
 	padding: 7px 16px;
@@ -203,7 +208,7 @@
 }
 
 [dir="rtl"] .order-bump-badge {
-	border-radius: 0 0 0 6px;
+	border-radius: 0 0 0 8px;
 	inset-inline-start: auto;
 	inset-inline-end: 0;
 }
