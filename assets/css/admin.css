@@ -1,17 +1,21 @@
-/* ── Global settings box ──────────────────────── */
+/* ── Global settings ──────────────────────────── */
 .bump-global-settings {
-	max-width: 800px;
+	max-width: 860px;
 	margin-bottom: 24px;
+}
+
+.bump-global-settings .form-table th {
+	width: 180px;
 }
 
 /* ── Cards list ───────────────────────────────── */
 .bump-cards-list {
-	max-width: 800px;
+	max-width: 860px;
 }
 
 /* ── Single card ──────────────────────────────── */
 .bump-card {
-	margin-bottom: 12px;
+	margin-bottom: 10px;
 	border: 1px solid #c3c4c7;
 	border-radius: 4px;
 	background: #fff;
@@ -22,13 +26,13 @@
 	align-items: center;
 	gap: 10px;
 	padding: 10px 14px;
-	cursor: default;
-	min-height: 46px;
+	min-height: 48px;
 }
 
 .bump-active-label {
 	display: flex;
 	align-items: center;
+	flex-shrink: 0;
 }
 
 .bump-active-cb {
@@ -46,15 +50,13 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	cursor: default;
 }
 
-/* Badge preview in header */
 .bump-badge-preview {
 	display: inline-block;
 	background: #e74c3c;
 	color: #fff;
-	font-size: 0.7em;
+	font-size: 0.68em;
 	font-weight: 700;
 	padding: 1px 7px;
 	border-radius: 3px;
@@ -65,16 +67,17 @@
 .bump-card-actions {
 	display: flex;
 	gap: 6px;
+	flex-shrink: 0;
 }
 
-/* ── Card body ────────────────────────────────── */
-.bump-card-body .bump-form-table {
+/* ── Card form table ──────────────────────────── */
+.bump-form-table {
 	width: 100%;
 	border-collapse: collapse;
 }
 
 .bump-form-table th {
-	width: 200px;
+	width: 210px;
 	font-weight: 600;
 	color: #444;
 	padding: 10px 14px;
@@ -109,4 +112,58 @@
 .required {
 	color: #d63638;
 	margin-inline-start: 2px;
+}
+
+/* ── Section divider ──────────────────────────── */
+.bump-section-divider {
+	display: flex;
+	align-items: center;
+	margin: 4px 14px 0;
+	color: #888;
+	font-size: 0.8em;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	gap: 10px;
+}
+
+.bump-section-divider::before,
+.bump-section-divider::after {
+	content: '';
+	flex: 1;
+	height: 1px;
+	background: #e0e0e0;
+}
+
+/* ── Color grid ───────────────────────────────── */
+.bump-color-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 20px;
+}
+
+.bump-color-field {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	min-width: 130px;
+}
+
+.bump-color-field label {
+	font-size: 0.82em;
+	font-weight: 600;
+	color: #555;
+}
+
+.bump-color-field .wp-picker-container {
+	display: flex;
+	align-items: center;
+}
+
+/* ── Code textareas ───────────────────────────── */
+.code {
+	font-family: Consolas, Monaco, monospace;
+	font-size: 0.88em;
+	background: #f8f8f8;
+	border-color: #ddd;
 }

@@ -15,12 +15,13 @@ class WC_Order_Bump_Frontend {
 
 		add_action( $hook, [ $this, 'display_bumps' ] );
 		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
+		add_action( 'wp_head', [ $this, 'output_custom_css' ] );
 
 		add_action( 'wp_ajax_order_bump_toggle',        [ $this, 'ajax_toggle' ] );
 		add_action( 'wp_ajax_nopriv_order_bump_toggle', [ $this, 'ajax_toggle' ] );
 
-		add_filter( 'woocommerce_add_cart_item_data',       [ $this, 'flag_cart_item' ], 10, 2 );
-		add_action( 'woocommerce_before_calculate_totals',  [ $this, 'apply_discount' ], 20 );
+		add_filter( 'woocommerce_add_cart_item_data',      [ $this, 'flag_cart_item' ], 10, 2 );
+		add_action( 'woocommerce_before_calculate_totals', [ $this, 'apply_discount' ], 20 );
 	}
 
 	public function enqueue_scripts(): void {
@@ -49,6 +50,36 @@ class WC_Order_Bump_Frontend {
 		] );
 	}
 
+	// Outputs global + per-bump custom CSS on checkout page
+	public function output_custom_css(): void {
+		if ( ! is_checkout() ) {
+			return;
+		}
+
+		$settings   = WC_Order_Bump_Admin::get_settings();
+		$bumps      = WC_Order_Bump_Admin::get_bumps();
+		$css_output = '';
+
+		if ( ! empty( $settings['custom_css'] ) ) {
+			$css_output .= "\n" . $settings['custom_css'];
+		}
+
+		foreach ( $bumps as $bump ) {
+			if ( empty( $bump['active'] ) || empty( $bump['product_id'] ) ) {
+				continue;
+			}
+			$pid        = absint( $bump['product_id'] );
+			$per_css    = $bump['style']['custom_css'] ?? '';
+			if ( $per_css ) {
+				$css_output .= "\n/* bump #{$pid} */\n.order-bump-item[data-product-id=\"{$pid}\"] { " . $per_css . ' }';
+			}
+		}
+
+		if ( $css_output ) {
+			echo '<style id="wc-order-bump-custom">' . $css_output . '</style>' . "\n"; // phpcs:ignore
+		}
+	}
+
 	public function display_bumps(): void {
 		$bumps        = WC_Order_Bump_Admin::get_bumps();
 		$settings     = WC_Order_Bump_Admin::get_settings();
@@ -58,9 +89,8 @@ class WC_Order_Bump_Frontend {
 			return;
 		}
 
-		// Build map: product_id => cart_item_key for all cart items
-		$all_product_ids = array_column( $active_bumps, 'product_id' );
-		$in_cart         = $this->get_bumps_in_cart( $all_product_ids );
+		$all_pids = array_column( $active_bumps, 'product_id' );
+		$in_cart  = $this->get_bumps_in_cart( $all_pids );
 
 		$heading = ! empty( $settings['heading'] )
 			? $settings['heading']
@@ -77,10 +107,9 @@ class WC_Order_Bump_Frontend {
 
 			$product_id    = $product->get_id();
 			$cart_item_key = $in_cart[ $product_id ] ?? '';
-			$already_in_cart = ! empty( $cart_item_key );
+			$is_added      = ! empty( $cart_item_key );
 
-			// Hide if product already in cart and hide_if_in_cart is enabled
-			if ( $already_in_cart && ( $bump['hide_if_in_cart'] ?? true ) ) {
+			if ( $is_added && ( $bump['hide_if_in_cart'] ?? true ) ) {
 				continue;
 			}
 
@@ -90,53 +119,56 @@ class WC_Order_Bump_Frontend {
 
 			$has_visible = true;
 
-			$checked     = $already_in_cart;
-			$title       = ! empty( $bump['title'] )       ? $bump['title']       : $product->get_name();
-			$description = ! empty( $bump['description'] ) ? $bump['description'] : wp_strip_all_tags( $product->get_short_description() );
-			$badge_text  = $bump['badge_text']  ?? '';
-			$urgency     = $bump['urgency_text'] ?? '';
-			$cta_lines   = array_filter( (array) ( $bump['cta_lines'] ?? [] ) );
-			$price_html  = $this->get_price_html( $product, $bump );
-			$image       = $product->get_image( 'woocommerce_thumbnail' );
+			$title              = ! empty( $bump['title'] )       ? $bump['title']       : $product->get_name();
+			$description        = ! empty( $bump['description'] ) ? $bump['description'] : wp_strip_all_tags( $product->get_short_description() );
+			$badge_text         = $bump['badge_text']             ?? '';
+			$urgency            = $bump['urgency_text']           ?? '';
+			$cta_lines          = array_filter( (array) ( $bump['cta_lines'] ?? [] ) );
+			$price_html         = $this->get_price_html( $product, $bump );
+			$image              = $product->get_image( 'woocommerce_thumbnail' );
+			$button_text        = ! empty( $bump['button_text'] )        ? $bump['button_text']        : __( 'כן, הוסיפו לי! →', 'wc-order-bump' );
+			$button_remove_text = ! empty( $bump['button_remove_text'] ) ? $bump['button_remove_text'] : __( '✓ נוסף — לחץ להסרה', 'wc-order-bump' );
+			$active_btn_text    = $is_added ? $button_remove_text : $button_text;
+
+			$inline_style = $this->build_inline_style( $bump['style'] ?? [] );
 			?>
-			<div class="order-bump-item<?php echo $checked ? ' is-added' : ''; ?>"
-				 data-product-id="<?php echo esc_attr( $product_id ); ?>">
+			<div class="order-bump-item<?php echo $is_added ? ' is-added' : ''; ?>"
+				 data-product-id="<?php echo esc_attr( $product_id ); ?>"
+				 <?php echo $inline_style ? 'style="' . esc_attr( $inline_style ) . '"' : ''; ?>>
 
 				<?php if ( $badge_text ) : ?>
 					<span class="order-bump-badge"><?php echo esc_html( $badge_text ); ?></span>
 				<?php endif; ?>
 
-				<label class="order-bump-label">
-					<span class="order-bump-checkbox-wrap">
-						<input type="checkbox" class="order-bump-checkbox"
-							data-product-id="<?php echo esc_attr( $product_id ); ?>"
-							data-cart-item-key="<?php echo esc_attr( $cart_item_key ); ?>"
-							data-quantity="<?php echo esc_attr( $bump['quantity'] ?? 1 ); ?>"
-							<?php checked( $checked ); ?>>
-					</span>
-					<span class="order-bump-inner">
-						<?php if ( $image ) : ?>
-							<span class="order-bump-image"><?php echo $image; // phpcs:ignore WordPress.Security.EscapeOutput ?></span>
+				<div class="order-bump-body">
+					<?php if ( $image ) : ?>
+						<div class="order-bump-image"><?php echo $image; // phpcs:ignore ?></div>
+					<?php endif; ?>
+					<div class="order-bump-content">
+						<p class="order-bump-title"><?php echo esc_html( $title ); ?></p>
+						<?php if ( $description ) : ?>
+							<p class="order-bump-description"><?php echo esc_html( $description ); ?></p>
 						<?php endif; ?>
-						<span class="order-bump-content">
-							<span class="order-bump-title"><?php echo esc_html( $title ); ?></span>
+						<?php if ( ! empty( $cta_lines ) ) : ?>
+							<ul class="order-bump-cta-list">
+								<?php foreach ( $cta_lines as $line ) : ?>
+									<li><span class="order-bump-cta-check" aria-hidden="true">✓</span><?php echo esc_html( $line ); ?></li>
+								<?php endforeach; ?>
+							</ul>
+						<?php endif; ?>
+						<p class="order-bump-price"><?php echo $price_html; // phpcs:ignore ?></p>
+					</div>
+				</div>
 
-							<?php if ( $description ) : ?>
-								<span class="order-bump-description"><?php echo esc_html( $description ); ?></span>
-							<?php endif; ?>
-
-							<?php if ( ! empty( $cta_lines ) ) : ?>
-								<ul class="order-bump-cta-list">
-									<?php foreach ( $cta_lines as $line ) : ?>
-										<li><span class="order-bump-cta-check" aria-hidden="true">✓</span><?php echo esc_html( $line ); ?></li>
-									<?php endforeach; ?>
-								</ul>
-							<?php endif; ?>
-
-							<span class="order-bump-price"><?php echo $price_html; // phpcs:ignore WordPress.Security.EscapeOutput ?></span>
-						</span>
-					</span>
-				</label>
+				<button type="button"
+					class="order-bump-btn<?php echo $is_added ? ' is-added' : ''; ?>"
+					data-product-id="<?php echo esc_attr( $product_id ); ?>"
+					data-cart-item-key="<?php echo esc_attr( $cart_item_key ); ?>"
+					data-quantity="<?php echo esc_attr( $bump['quantity'] ?? 1 ); ?>"
+					data-add-text="<?php echo esc_attr( $button_text ); ?>"
+					data-remove-text="<?php echo esc_attr( $button_remove_text ); ?>">
+					<?php echo esc_html( $active_btn_text ); ?>
+				</button>
 
 				<?php if ( $urgency ) : ?>
 					<div class="order-bump-urgency"><?php echo esc_html( $urgency ); ?></div>
@@ -150,24 +182,41 @@ class WC_Order_Bump_Frontend {
 		if ( $has_visible ) {
 			echo '<div class="wc-order-bumps-wrapper">';
 			echo '<h3 class="order-bumps-heading">' . esc_html( $heading ) . '</h3>';
-			echo $output; // phpcs:ignore WordPress.Security.EscapeOutput
+			echo $output; // phpcs:ignore
 			echo '</div>';
 		}
 	}
 
-	private function passes_condition( array $bump ): bool {
-		$condition_type  = $bump['condition_type']  ?? 'always';
-		$condition_value = absint( $bump['condition_value'] ?? 0 );
+	private function build_inline_style( array $style ): string {
+		$vars = [];
+		$map  = [
+			'bg_color'          => '--bump-bg',
+			'border_color'      => '--bump-border',
+			'button_bg'         => '--bump-btn-bg',
+			'button_text_color' => '--bump-btn-color',
+			'badge_color'       => '--bump-badge-bg',
+		];
+		foreach ( $map as $key => $var ) {
+			if ( ! empty( $style[ $key ] ) ) {
+				$vars[] = $var . ':' . esc_attr( $style[ $key ] );
+			}
+		}
+		return $vars ? implode( ';', $vars ) : '';
+	}
 
-		if ( $condition_type === 'always' || ! $condition_value ) {
+	private function passes_condition( array $bump ): bool {
+		$type  = $bump['condition_type']  ?? 'always';
+		$value = absint( $bump['condition_value'] ?? 0 );
+
+		if ( $type === 'always' || ! $value ) {
 			return true;
 		}
 
-		foreach ( WC()->cart->get_cart() as $cart_item ) {
-			if ( $condition_type === 'if_product' && (int) $cart_item['product_id'] === $condition_value ) {
+		foreach ( WC()->cart->get_cart() as $item ) {
+			if ( $type === 'if_product'  && (int) $item['product_id'] === $value ) {
 				return true;
 			}
-			if ( $condition_type === 'if_category' && has_term( $condition_value, 'product_cat', $cart_item['product_id'] ) ) {
+			if ( $type === 'if_category' && has_term( $value, 'product_cat', $item['product_id'] ) ) {
 				return true;
 			}
 		}
@@ -176,44 +225,44 @@ class WC_Order_Bump_Frontend {
 	}
 
 	private function get_price_html( WC_Product $product, array $bump ): string {
-		$discount_type  = $bump['discount_type']  ?? 'none';
-		$discount_value = (float) ( $bump['discount_value'] ?? 0 );
+		$type  = $bump['discount_type']  ?? 'none';
+		$value = (float) ( $bump['discount_value'] ?? 0 );
 
-		if ( $discount_type === 'none' || $discount_value <= 0 ) {
+		if ( $type === 'none' || $value <= 0 ) {
 			return $product->get_price_html();
 		}
 
-		$original_price = (float) $product->get_price();
-		$new_price      = $discount_type === 'percent'
-			? $original_price * ( 1 - $discount_value / 100 )
-			: $original_price - $discount_value;
+		$original  = (float) $product->get_price();
+		$new_price = $type === 'percent'
+			? $original * ( 1 - $value / 100 )
+			: $original - $value;
 
 		$new_price = max( 0, round( $new_price, wc_get_price_decimals() ) );
 
-		return '<del>' . wc_price( $original_price ) . '</del> <ins>' . wc_price( $new_price ) . '</ins>';
+		return '<del>' . wc_price( $original ) . '</del> <ins>' . wc_price( $new_price ) . '</ins>';
 	}
 
 	private function get_bumps_in_cart( array $product_ids ): array {
 		$in_cart = [];
-		foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
-			$pid = (int) $cart_item['product_id'];
+		foreach ( WC()->cart->get_cart() as $key => $item ) {
+			$pid = (int) $item['product_id'];
 			if ( in_array( $pid, $product_ids, true ) && ! isset( $in_cart[ $pid ] ) ) {
-				$in_cart[ $pid ] = $cart_item_key;
+				$in_cart[ $pid ] = $key;
 			}
 		}
 		return $in_cart;
 	}
 
-	public function flag_cart_item( array $cart_item_data, int $product_id ): array {
+	public function flag_cart_item( array $data, int $product_id ): array {
 		if ( self::$bump_product_adding === $product_id ) {
-			$cart_item_data['_order_bump'] = true;
+			$data['_order_bump'] = true;
 			if ( ! empty( self::$bump_discount_adding ) ) {
-				$cart_item_data['_bump_discount'] = self::$bump_discount_adding;
+				$data['_bump_discount'] = self::$bump_discount_adding;
 			}
 			self::$bump_product_adding  = null;
 			self::$bump_discount_adding = [];
 		}
-		return $cart_item_data;
+		return $data;
 	}
 
 	public function apply_discount( \WC_Cart $cart ): void {
@@ -221,20 +270,17 @@ class WC_Order_Bump_Frontend {
 			return;
 		}
 
-		foreach ( $cart->get_cart() as $cart_item ) {
-			if ( empty( $cart_item['_order_bump'] ) || empty( $cart_item['_bump_discount'] ) ) {
+		foreach ( $cart->get_cart() as $item ) {
+			if ( empty( $item['_order_bump'] ) || empty( $item['_bump_discount'] ) ) {
 				continue;
 			}
-
-			$discount  = $cart_item['_bump_discount'];
-			$product   = $cart_item['data'];
-			$original  = (float) $product->get_regular_price() ?: (float) $product->get_price();
-
-			$new_price = $discount['type'] === 'percent'
-				? $original * ( 1 - (float) $discount['value'] / 100 )
-				: $original - (float) $discount['value'];
-
-			$product->set_price( max( 0, round( $new_price, wc_get_price_decimals() ) ) );
+			$d        = $item['_bump_discount'];
+			$product  = $item['data'];
+			$original = (float) $product->get_regular_price() ?: (float) $product->get_price();
+			$new      = $d['type'] === 'percent'
+				? $original * ( 1 - (float) $d['value'] / 100 )
+				: $original - (float) $d['value'];
+			$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
 		}
 	}
 
@@ -251,18 +297,13 @@ class WC_Order_Bump_Frontend {
 		}
 
 		if ( $toggle === 'add' ) {
-			$bumps    = WC_Order_Bump_Admin::get_bumps();
 			$discount = [];
-
-			foreach ( $bumps as $bump ) {
+			foreach ( WC_Order_Bump_Admin::get_bumps() as $bump ) {
 				if ( (int) $bump['product_id'] === $product_id
 					&& ( $bump['discount_type'] ?? 'none' ) !== 'none'
 					&& ! empty( $bump['discount_value'] )
 				) {
-					$discount = [
-						'type'  => $bump['discount_type'],
-						'value' => (float) $bump['discount_value'],
-					];
+					$discount = [ 'type' => $bump['discount_type'], 'value' => (float) $bump['discount_value'] ];
 					break;
 				}
 			}

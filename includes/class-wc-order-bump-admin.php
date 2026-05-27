@@ -30,7 +30,10 @@ class WC_Order_Bump_Admin {
 		}
 
 		wp_enqueue_style( 'woocommerce_admin_styles' );
+		wp_enqueue_style( 'wp-color-picker' );
 		wp_enqueue_script( 'wc-enhanced-select' );
+		wp_enqueue_script( 'wp-color-picker' );
+
 		wp_enqueue_style(
 			'wc-order-bump-admin',
 			WC_ORDER_BUMP_URL . 'assets/css/admin.css',
@@ -40,13 +43,14 @@ class WC_Order_Bump_Admin {
 		wp_enqueue_script(
 			'wc-order-bump-admin',
 			WC_ORDER_BUMP_URL . 'assets/js/admin.js',
-			[ 'jquery', 'wc-enhanced-select' ],
+			[ 'jquery', 'wc-enhanced-select', 'wp-color-picker' ],
 			WC_ORDER_BUMP_VERSION,
 			true
 		);
 		wp_localize_script( 'wc-order-bump-admin', 'wcOrderBumpAdmin', [
 			'searchNonce' => wp_create_nonce( 'search-products' ),
 			'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
+			'currency'    => get_woocommerce_currency_symbol(),
 			'i18n'        => [
 				'noProduct' => __( 'לא נבחר מוצר', 'wc-order-bump' ),
 				'settings'  => __( 'הגדרות', 'wc-order-bump' ),
@@ -65,10 +69,11 @@ class WC_Order_Bump_Admin {
 
 		// Global settings
 		update_option( self::OPTION_SETTINGS, [
-			'heading'  => sanitize_text_field( $_POST['setting_heading']  ?? '' ),
-			'position' => in_array( $_POST['setting_position'] ?? '', [ 'before_payment', 'after_order_table' ], true )
+			'heading'    => sanitize_text_field( $_POST['setting_heading']  ?? '' ),
+			'position'   => in_array( $_POST['setting_position'] ?? '', [ 'before_payment', 'after_order_table' ], true )
 				? $_POST['setting_position']
 				: 'before_payment',
+			'custom_css' => wp_strip_all_tags( $_POST['setting_custom_css'] ?? '' ),
 		] );
 
 		// Bumps
@@ -82,30 +87,38 @@ class WC_Order_Bump_Admin {
 			}
 
 			$discount_type = in_array( $data['discount_type'] ?? '', [ 'none', 'percent', 'fixed' ], true )
-				? $data['discount_type']
-				: 'none';
+				? $data['discount_type'] : 'none';
 
 			$condition_type = in_array( $data['condition_type'] ?? '', [ 'always', 'if_product', 'if_category' ], true )
-				? $data['condition_type']
-				: 'always';
+				? $data['condition_type'] : 'always';
 
-			$raw_cta = (array) ( $data['cta_lines'] ?? [] );
-			$cta_lines = array_values( array_filter( array_map( 'sanitize_text_field', $raw_cta ) ) );
+			$raw_cta   = (array) ( $data['cta_lines'] ?? [] );
+			$cta_lines = array_slice( array_values( array_filter( array_map( 'sanitize_text_field', $raw_cta ) ) ), 0, 3 );
 
 			$bumps[] = [
-				'product_id'      => $product_id,
-				'active'          => (bool) ( $data['active'] ?? false ),
-				'title'           => sanitize_text_field( $data['title']        ?? '' ),
-				'description'     => wp_kses_post( $data['description']         ?? '' ),
-				'badge_text'      => sanitize_text_field( $data['badge_text']   ?? '' ),
-				'urgency_text'    => sanitize_text_field( $data['urgency_text'] ?? '' ),
-				'cta_lines'       => array_slice( $cta_lines, 0, 3 ),
-				'discount_type'   => $discount_type,
-				'discount_value'  => max( 0.0, (float) ( $data['discount_value'] ?? 0 ) ),
-				'quantity'        => max( 1, absint( $data['quantity'] ?? 1 ) ),
-				'condition_type'  => $condition_type,
-				'condition_value' => absint( $data['condition_value'] ?? 0 ),
-				'hide_if_in_cart' => (bool) ( $data['hide_if_in_cart'] ?? true ),
+				'product_id'         => $product_id,
+				'active'             => (bool) ( $data['active'] ?? false ),
+				'title'              => sanitize_text_field( $data['title']              ?? '' ),
+				'description'        => wp_kses_post( $data['description']               ?? '' ),
+				'badge_text'         => sanitize_text_field( $data['badge_text']         ?? '' ),
+				'urgency_text'       => sanitize_text_field( $data['urgency_text']       ?? '' ),
+				'cta_lines'          => $cta_lines,
+				'button_text'        => sanitize_text_field( $data['button_text']        ?? '' ),
+				'button_remove_text' => sanitize_text_field( $data['button_remove_text'] ?? '' ),
+				'discount_type'      => $discount_type,
+				'discount_value'     => max( 0.0, (float) ( $data['discount_value'] ?? 0 ) ),
+				'quantity'           => max( 1, absint( $data['quantity']           ?? 1 ) ),
+				'condition_type'     => $condition_type,
+				'condition_value'    => absint( $data['condition_value']            ?? 0 ),
+				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart']           ?? true ),
+				'style'              => [
+					'bg_color'          => sanitize_hex_color( $data['style']['bg_color']          ?? '' ) ?? '',
+					'border_color'      => sanitize_hex_color( $data['style']['border_color']      ?? '' ) ?? '',
+					'button_bg'         => sanitize_hex_color( $data['style']['button_bg']         ?? '' ) ?? '',
+					'button_text_color' => sanitize_hex_color( $data['style']['button_text_color'] ?? '' ) ?? '',
+					'badge_color'       => sanitize_hex_color( $data['style']['badge_color']       ?? '' ) ?? '',
+					'custom_css'        => wp_strip_all_tags( $data['style']['custom_css']         ?? '' ),
+				],
 			];
 		}
 
@@ -120,11 +133,11 @@ class WC_Order_Bump_Admin {
 	}
 
 	public static function get_settings(): array {
-		$defaults = [
-			'heading'  => '',
-			'position' => 'before_payment',
-		];
-		return wp_parse_args( (array) get_option( self::OPTION_SETTINGS, [] ), $defaults );
+		return wp_parse_args( (array) get_option( self::OPTION_SETTINGS, [] ), [
+			'heading'    => '',
+			'position'   => 'before_payment',
+			'custom_css' => '',
+		] );
 	}
 
 	public function render_page(): void {
@@ -150,7 +163,7 @@ class WC_Order_Bump_Admin {
 				<?php wp_nonce_field( 'wc_order_bumps_save', 'wc_order_bumps_nonce' ); ?>
 				<input type="hidden" name="action" value="save_wc_order_bumps">
 
-				<!-- Global Settings -->
+				<!-- ── Global Settings ─────────────────────────── -->
 				<div class="postbox bump-global-settings">
 					<div class="postbox-header">
 						<h2 class="hndle"><?php esc_html_e( 'הגדרות כלליות', 'wc-order-bump' ); ?></h2>
@@ -158,17 +171,16 @@ class WC_Order_Bump_Admin {
 					<div class="inside">
 						<table class="form-table">
 							<tr>
-								<th scope="row"><label for="setting_heading"><?php esc_html_e( 'כותרת הבלוק', 'wc-order-bump' ); ?></label></th>
+								<th><label for="setting_heading"><?php esc_html_e( 'כותרת הבלוק', 'wc-order-bump' ); ?></label></th>
 								<td>
 									<input type="text" id="setting_heading" name="setting_heading"
 										value="<?php echo esc_attr( $settings['heading'] ); ?>"
 										placeholder="<?php esc_attr_e( 'הצעות מיוחדות עבורך', 'wc-order-bump' ); ?>"
 										class="regular-text">
-									<p class="description"><?php esc_html_e( 'הכותרת המוצגת מעל ה-bumps בצ\'קאאוט.', 'wc-order-bump' ); ?></p>
 								</td>
 							</tr>
 							<tr>
-								<th scope="row"><label for="setting_position"><?php esc_html_e( 'מיקום הצגה', 'wc-order-bump' ); ?></label></th>
+								<th><label for="setting_position"><?php esc_html_e( 'מיקום הצגה', 'wc-order-bump' ); ?></label></th>
 								<td>
 									<select id="setting_position" name="setting_position">
 										<option value="before_payment" <?php selected( $settings['position'], 'before_payment' ); ?>>
@@ -180,14 +192,20 @@ class WC_Order_Bump_Admin {
 									</select>
 								</td>
 							</tr>
+							<tr>
+								<th><label for="setting_custom_css"><?php esc_html_e( 'CSS גלובלי', 'wc-order-bump' ); ?></label></th>
+								<td>
+									<textarea id="setting_custom_css" name="setting_custom_css"
+										rows="6" class="large-text code"><?php echo esc_textarea( $settings['custom_css'] ); ?></textarea>
+									<p class="description"><?php esc_html_e( 'CSS מותאם אישית שיוחל על כל ה-bumps בצ\'קאאוט.', 'wc-order-bump' ); ?></p>
+								</td>
+							</tr>
 						</table>
 					</div>
 				</div>
 
+				<!-- ── Bumps List ──────────────────────────────── -->
 				<h2 style="margin-top:24px"><?php esc_html_e( 'רשימת Order Bumps', 'wc-order-bump' ); ?></h2>
-				<p class="description" style="margin-bottom:12px">
-					<?php esc_html_e( 'כל Bump מוצג ללקוח לפני התשלום. ניתן לסדר את הסדר על ידי גרירה.', 'wc-order-bump' ); ?>
-				</p>
 
 				<div id="order-bumps-list" class="bump-cards-list">
 					<?php foreach ( $bumps as $i => $bump ) : ?>
@@ -216,25 +234,39 @@ class WC_Order_Bump_Admin {
 	}
 
 	public function render_bump_card( int|string $i, array $bump, array $categories = [] ): void {
-		$product_id      = $bump['product_id']      ?? 0;
-		$active          = $bump['active']           ?? true;
-		$title           = $bump['title']            ?? '';
-		$description     = $bump['description']      ?? '';
-		$badge_text      = $bump['badge_text']       ?? '';
-		$discount_type   = $bump['discount_type']    ?? 'none';
-		$discount_value  = $bump['discount_value']   ?? 0;
-		$quantity        = $bump['quantity']         ?? 1;
-		$condition_type  = $bump['condition_type']   ?? 'always';
-		$condition_value = $bump['condition_value']  ?? 0;
+		$n = esc_attr( $i );
+
+		$product_id         = $bump['product_id']         ?? 0;
+		$active             = $bump['active']              ?? true;
+		$title              = $bump['title']               ?? '';
+		$description        = $bump['description']         ?? '';
+		$badge_text         = $bump['badge_text']          ?? '';
+		$urgency_text       = $bump['urgency_text']        ?? '';
+		$cta_lines          = array_pad( (array) ( $bump['cta_lines'] ?? [] ), 3, '' );
+		$button_text        = $bump['button_text']         ?? '';
+		$button_remove_text = $bump['button_remove_text']  ?? '';
+		$discount_type      = $bump['discount_type']       ?? 'none';
+		$discount_value     = $bump['discount_value']      ?? 0;
+		$quantity           = $bump['quantity']            ?? 1;
+		$condition_type     = $bump['condition_type']      ?? 'always';
+		$condition_value    = $bump['condition_value']     ?? 0;
+		$hide_if_in_cart    = $bump['hide_if_in_cart']     ?? true;
+		$style              = wp_parse_args( $bump['style'] ?? [], [
+			'bg_color'          => '',
+			'border_color'      => '',
+			'button_bg'         => '',
+			'button_text_color' => '',
+			'badge_color'       => '',
+			'custom_css'        => '',
+		] );
 
 		$product      = $product_id ? wc_get_product( $product_id ) : null;
 		$product_name = $product ? $product->get_name() : __( 'לא נבחר מוצר', 'wc-order-bump' );
-
 		$cond_product = ( $condition_type === 'if_product' && $condition_value ) ? wc_get_product( $condition_value ) : null;
-
-		$n = esc_attr( $i );
 		?>
 		<div class="bump-card postbox" data-index="<?php echo $n; ?>">
+
+			<!-- Header -->
 			<div class="bump-card-header postbox-header">
 				<label class="bump-active-label">
 					<input type="hidden"   name="bumps[<?php echo $n; ?>][active]" value="0">
@@ -257,9 +289,11 @@ class WC_Order_Bump_Admin {
 				</div>
 			</div>
 
+			<!-- Body -->
 			<div class="bump-card-body inside" style="display:none">
 				<table class="form-table bump-form-table">
 
+					<!-- Product -->
 					<tr>
 						<th><?php esc_html_e( 'מוצר', 'wc-order-bump' ); ?> <span class="required">*</span></th>
 						<td>
@@ -276,6 +310,7 @@ class WC_Order_Bump_Admin {
 						</td>
 					</tr>
 
+					<!-- Title -->
 					<tr>
 						<th><?php esc_html_e( 'כותרת מותאמת', 'wc-order-bump' ); ?></th>
 						<td>
@@ -286,14 +321,36 @@ class WC_Order_Bump_Admin {
 						</td>
 					</tr>
 
+					<!-- Description -->
 					<tr>
 						<th><?php esc_html_e( 'תיאור קצר', 'wc-order-bump' ); ?></th>
 						<td>
 							<textarea name="bumps[<?php echo $n; ?>][description]" rows="2" class="large-text"><?php echo esc_textarea( $description ); ?></textarea>
-							<p class="description"><?php esc_html_e( 'ברירת מחדל: תיאור קצר מהמוצר.', 'wc-order-bump' ); ?></p>
 						</td>
 					</tr>
 
+					<!-- CTA lines -->
+					<tr>
+						<th><?php esc_html_e( 'משפטי הנעה (CTA)', 'wc-order-bump' ); ?></th>
+						<td>
+							<?php
+							$placeholders = [
+								__( '✓ משלוח חינם על המוצר הזה', 'wc-order-bump' ),
+								__( '✓ ערך ₪199 — שלך היום ב-₪99', 'wc-order-bump' ),
+								__( '✓ אחריות 30 יום', 'wc-order-bump' ),
+							];
+							for ( $l = 0; $l < 3; $l++ ) :
+							?>
+								<input type="text"
+									name="bumps[<?php echo $n; ?>][cta_lines][<?php echo $l; ?>]"
+									value="<?php echo esc_attr( $cta_lines[ $l ] ); ?>"
+									placeholder="<?php echo esc_attr( $placeholders[ $l ] ); ?>"
+									class="large-text" style="margin-bottom:5px;display:block">
+							<?php endfor; ?>
+						</td>
+					</tr>
+
+					<!-- Badge -->
 					<tr>
 						<th><?php esc_html_e( 'תג (Badge)', 'wc-order-bump' ); ?></th>
 						<td>
@@ -301,18 +358,29 @@ class WC_Order_Bump_Admin {
 								value="<?php echo esc_attr( $badge_text ); ?>"
 								placeholder="<?php esc_attr_e( 'מבצע! / חיסכון 20% / הצעה מיוחדת', 'wc-order-bump' ); ?>"
 								class="regular-text bump-badge-input">
-							<p class="description"><?php esc_html_e( 'מוצג כתווית צבעונית על הכרטיס.', 'wc-order-bump' ); ?></p>
 						</td>
 					</tr>
 
+					<!-- Urgency -->
+					<tr>
+						<th><?php esc_html_e( 'טקסט דחיפות', 'wc-order-bump' ); ?></th>
+						<td>
+							<input type="text" name="bumps[<?php echo $n; ?>][urgency_text]"
+								value="<?php echo esc_attr( $urgency_text ); ?>"
+								placeholder="<?php esc_attr_e( '⏰ מלאי מוגבל! רק 3 נותרו במחיר זה', 'wc-order-bump' ); ?>"
+								class="large-text">
+						</td>
+					</tr>
+
+					<!-- Discount -->
 					<tr>
 						<th><?php esc_html_e( 'הנחה', 'wc-order-bump' ); ?></th>
 						<td>
 							<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
 								<select name="bumps[<?php echo $n; ?>][discount_type]" class="bump-discount-type">
 									<option value="none"    <?php selected( $discount_type, 'none' ); ?>><?php esc_html_e( 'ללא הנחה', 'wc-order-bump' ); ?></option>
-									<option value="percent" <?php selected( $discount_type, 'percent' ); ?>><?php esc_html_e( 'הנחה באחוזים (%)', 'wc-order-bump' ); ?></option>
-									<option value="fixed"   <?php selected( $discount_type, 'fixed' ); ?>><?php esc_html_e( 'הנחה בסכום קבוע', 'wc-order-bump' ); ?></option>
+									<option value="percent" <?php selected( $discount_type, 'percent' ); ?>><?php esc_html_e( 'אחוזים (%)', 'wc-order-bump' ); ?></option>
+									<option value="fixed"   <?php selected( $discount_type, 'fixed' ); ?>><?php esc_html_e( 'סכום קבוע', 'wc-order-bump' ); ?></option>
 								</select>
 								<span class="bump-discount-value-wrap" <?php echo $discount_type === 'none' ? 'style="display:none"' : ''; ?>>
 									<input type="number" name="bumps[<?php echo $n; ?>][discount_value]"
@@ -323,33 +391,33 @@ class WC_Order_Bump_Admin {
 									</span>
 								</span>
 							</div>
-							<p class="description"><?php esc_html_e( 'ההנחה תוצג למשתמש ותקוזז מסכום ההזמנה.', 'wc-order-bump' ); ?></p>
 						</td>
 					</tr>
 
-					<tr>
-						<th><?php esc_html_e( 'אם המוצר כבר בסל', 'wc-order-bump' ); ?></th>
-						<td>
-							<label>
-								<input type="hidden"   name="bumps[<?php echo $n; ?>][hide_if_in_cart]" value="0">
-								<input type="checkbox" name="bumps[<?php echo $n; ?>][hide_if_in_cart]" value="1"
-									<?php checked( $bump['hide_if_in_cart'] ?? true ); ?>>
-								<?php esc_html_e( 'הסתר את ה-Bump אם המוצר כבר קיים בסל', 'wc-order-bump' ); ?>
-							</label>
-							<p class="description"><?php esc_html_e( 'כשמסומן: לקוח שכבר הוסיף את המוצר לא יראה את ההצעה. כשלא מסומן: ה-Bump יוצג תמיד (אף פעם לא יאפשר הנחה כפולה).', 'wc-order-bump' ); ?></p>
-						</td>
-					</tr>
-
+					<!-- Quantity -->
 					<tr>
 						<th><?php esc_html_e( 'כמות', 'wc-order-bump' ); ?></th>
 						<td>
 							<input type="number" name="bumps[<?php echo $n; ?>][quantity]"
 								value="<?php echo esc_attr( $quantity ); ?>"
 								min="1" step="1" style="width:70px">
-							<p class="description"><?php esc_html_e( 'כמה יחידות יתווספו לסל.', 'wc-order-bump' ); ?></p>
 						</td>
 					</tr>
 
+					<!-- Hide if in cart -->
+					<tr>
+						<th><?php esc_html_e( 'אם המוצר כבר בסל', 'wc-order-bump' ); ?></th>
+						<td>
+							<label>
+								<input type="hidden"   name="bumps[<?php echo $n; ?>][hide_if_in_cart]" value="0">
+								<input type="checkbox" name="bumps[<?php echo $n; ?>][hide_if_in_cart]" value="1"
+									<?php checked( $hide_if_in_cart ); ?>>
+								<?php esc_html_e( 'הסתר את ה-Bump אם המוצר כבר קיים בסל', 'wc-order-bump' ); ?>
+							</label>
+						</td>
+					</tr>
+
+					<!-- Condition -->
 					<tr>
 						<th><?php esc_html_e( 'תנאי הצגה', 'wc-order-bump' ); ?></th>
 						<td>
@@ -358,7 +426,6 @@ class WC_Order_Bump_Admin {
 								<option value="if_product"  <?php selected( $condition_type, 'if_product' ); ?>><?php esc_html_e( 'רק אם מוצר ספציפי בסל', 'wc-order-bump' ); ?></option>
 								<option value="if_category" <?php selected( $condition_type, 'if_category' ); ?>><?php esc_html_e( 'רק אם קטגוריה ספציפית בסל', 'wc-order-bump' ); ?></option>
 							</select>
-
 							<div class="bump-condition-value-wrap" <?php echo $condition_type === 'always' ? 'style="display:none"' : ''; ?>>
 								<div class="bump-condition-product-wrap" <?php echo $condition_type !== 'if_product' ? 'style="display:none"' : ''; ?>>
 									<select class="wc-product-search bump-condition-product-select"
@@ -389,50 +456,84 @@ class WC_Order_Bump_Admin {
 									</select>
 								</div>
 							</div>
-							<p class="description"><?php esc_html_e( 'הגדר מתי ה-Bump יוצג ללקוח.', 'wc-order-bump' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th><?php esc_html_e( 'משפטי הנעה לפעולה', 'wc-order-bump' ); ?></th>
-						<td>
-							<?php
-							$cta_lines = $bump['cta_lines'] ?? [ '', '', '' ];
-							while ( count( $cta_lines ) < 3 ) {
-								$cta_lines[] = '';
-							}
-							$cta_placeholders = [
-								__( 'לדוגמה: ✓ משלוח חינם על המוצר הזה', 'wc-order-bump' ),
-								__( 'לדוגמה: ✓ ערך ₪199 — שלך היום ב-₪99', 'wc-order-bump' ),
-								__( 'לדוגמה: ✓ ניתן לביטול בכל עת', 'wc-order-bump' ),
-							];
-							for ( $l = 0; $l < 3; $l++ ) :
-							?>
-								<input type="text"
-									name="bumps[<?php echo $n; ?>][cta_lines][<?php echo $l; ?>]"
-									value="<?php echo esc_attr( $cta_lines[ $l ] ); ?>"
-									placeholder="<?php echo esc_attr( $cta_placeholders[ $l ] ); ?>"
-									class="large-text"
-									style="margin-bottom:5px;display:block">
-							<?php endfor; ?>
-							<p class="description"><?php esc_html_e( 'עד 3 נקודות שכנוע המוצגות ללקוח.', 'wc-order-bump' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th><?php esc_html_e( 'טקסט דחיפות', 'wc-order-bump' ); ?></th>
-						<td>
-							<input type="text" name="bumps[<?php echo $n; ?>][urgency_text]"
-								value="<?php echo esc_attr( $bump['urgency_text'] ?? '' ); ?>"
-								placeholder="<?php esc_attr_e( 'לדוגמה: ⏰ מלאי מוגבל! רק 3 נותרו במחיר זה', 'wc-order-bump' ); ?>"
-								class="large-text">
-							<p class="description"><?php esc_html_e( 'מוצג בבאנר צבעוני בתחתית הכרטיס.', 'wc-order-bump' ); ?></p>
 						</td>
 					</tr>
 
 				</table>
-			</div>
-		</div>
+
+				<!-- ── Styling & Button Section ────────────────── -->
+				<div class="bump-section-divider">
+					<span><?php esc_html_e( 'עיצוב וכפתור', 'wc-order-bump' ); ?></span>
+				</div>
+
+				<table class="form-table bump-form-table">
+
+					<!-- Button text -->
+					<tr>
+						<th><?php esc_html_e( 'כיתוב כפתור הוספה', 'wc-order-bump' ); ?></th>
+						<td>
+							<input type="text" name="bumps[<?php echo $n; ?>][button_text]"
+								value="<?php echo esc_attr( $button_text ); ?>"
+								placeholder="<?php esc_attr_e( 'כן, הוסיפו לי! →', 'wc-order-bump' ); ?>"
+								class="regular-text">
+						</td>
+					</tr>
+
+					<!-- Button remove text -->
+					<tr>
+						<th><?php esc_html_e( 'כיתוב כפתור הסרה', 'wc-order-bump' ); ?></th>
+						<td>
+							<input type="text" name="bumps[<?php echo $n; ?>][button_remove_text]"
+								value="<?php echo esc_attr( $button_remove_text ); ?>"
+								placeholder="<?php esc_attr_e( '✓ נוסף — לחץ להסרה', 'wc-order-bump' ); ?>"
+								class="regular-text">
+						</td>
+					</tr>
+
+					<!-- Colors -->
+					<tr>
+						<th><?php esc_html_e( 'צבעים', 'wc-order-bump' ); ?></th>
+						<td>
+							<div class="bump-color-grid">
+								<?php
+								$color_fields = [
+									'bg_color'          => __( 'רקע כרטיס', 'wc-order-bump' ),
+									'border_color'      => __( 'צבע גבול', 'wc-order-bump' ),
+									'button_bg'         => __( 'רקע כפתור', 'wc-order-bump' ),
+									'button_text_color' => __( 'טקסט כפתור', 'wc-order-bump' ),
+									'badge_color'       => __( 'צבע Badge', 'wc-order-bump' ),
+								];
+								foreach ( $color_fields as $field => $label ) :
+								?>
+									<div class="bump-color-field">
+										<label><?php echo esc_html( $label ); ?></label>
+										<input type="text"
+											class="bump-color-picker"
+											name="bumps[<?php echo $n; ?>][style][<?php echo esc_attr( $field ); ?>]"
+											value="<?php echo esc_attr( $style[ $field ] ); ?>"
+											data-default-color="">
+									</div>
+								<?php endforeach; ?>
+							</div>
+						</td>
+					</tr>
+
+					<!-- Custom CSS per bump -->
+					<tr>
+						<th><?php esc_html_e( 'CSS מותאם לכרטיס זה', 'wc-order-bump' ); ?></th>
+						<td>
+							<textarea name="bumps[<?php echo $n; ?>][style][custom_css]"
+								rows="5" class="large-text code"
+								placeholder=".order-bump-item { font-family: 'Heebo', sans-serif; }"><?php echo esc_textarea( $style['custom_css'] ); ?></textarea>
+							<p class="description">
+								<?php esc_html_e( 'CSS שיוחל על כרטיס זה בלבד. השתמש ב-.order-bump-item כ-selector.', 'wc-order-bump' ); ?>
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</div><!-- .bump-card-body -->
+		</div><!-- .bump-card -->
 		<?php
 	}
 }
