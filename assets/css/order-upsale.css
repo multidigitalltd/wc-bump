@@ -1,10 +1,10 @@
-/* ── Wrapper ─────────────────────────────────── */
-.wc-order-bumps-wrapper {
+﻿/* ── Wrapper ─────────────────────────────────── */
+.wc-order-upsales-wrapper {
 	margin: 24px 0 12px;
 	font-family: inherit;
 }
 
-.order-bumps-heading {
+.order-upsales-heading {
 	font-size: 1em;
 	font-weight: 700;
 	margin: 0 0 12px;
@@ -12,37 +12,37 @@
 }
 
 /* ── Card ────────────────────────────────────── */
-.order-bump-item {
+.order-upsale-item {
 	position: relative;
-	border: 1.5px solid var(--bump-border, #e2e8f0);
+	border: 1.5px solid var(--upsale-border, #e2e8f0);
 	border-radius: 10px;
 	padding: 0;
 	margin-bottom: 12px;
-	background: var(--bump-bg, #ffffff);
+	background: var(--upsale-bg, #ffffff);
 	box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.03);
 	transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
 	overflow: hidden;
 }
 
-.order-bump-item:hover {
-	border-color: var(--bump-border, #c4d0de);
+.order-upsale-item:hover {
+	border-color: var(--upsale-border, #c4d0de);
 	box-shadow: 0 2px 12px rgba(0,0,0,.09);
 }
 
-.order-bump-item.is-added {
-	border-color: var(--bump-border, #16a34a);
-	background: var(--bump-bg, #f0fdf4);
+.order-upsale-item.is-added {
+	border-color: var(--upsale-border, #16a34a);
+	background: var(--upsale-bg, #f0fdf4);
 }
 
-.order-bump-item.is-loading {
+.order-upsale-item.is-loading {
 	opacity: 0.55;
 	pointer-events: none;
 }
 
 /* ── Badge ───────────────────────────────────── */
-.order-bump-badge {
+.order-upsale-badge {
 	display: inline-block;
-	background: var(--bump-badge-bg, #dc2626);
+	background: var(--upsale-badge-bg, #dc2626);
 	color: #fff;
 	font-size: 0.68em;
 	font-weight: 700;
@@ -57,23 +57,23 @@
 }
 
 /* ── Body ────────────────────────────────────── */
-.order-bump-body {
+.order-upsale-body {
 	display: flex;
 	align-items: flex-start;
 	gap: 14px;
 	padding: 16px 16px 14px;
 }
 
-.order-bump-item .order-bump-badge + .order-bump-body {
+.order-upsale-item .order-upsale-badge + .order-upsale-body {
 	padding-top: 32px;
 }
 
 /* ── Image ───────────────────────────────────── */
-.order-bump-image {
+.order-upsale-image {
 	flex-shrink: 0;
 }
 
-.order-bump-image img {
+.order-upsale-image img {
 	width: 72px;
 	height: 72px;
 	object-fit: cover;
@@ -83,14 +83,14 @@
 }
 
 /* ── Content ─────────────────────────────────── */
-.order-bump-content {
+.order-upsale-content {
 	flex: 1;
 	display: flex;
 	flex-direction: column;
 	gap: 5px;
 }
 
-.order-bump-title {
+.order-upsale-title {
 	font-weight: 700;
 	color: #111827;
 	font-size: 0.97em;
@@ -98,7 +98,7 @@
 	margin: 0;
 }
 
-.order-bump-description {
+.order-upsale-description {
 	font-size: 0.83em;
 	color: #6b7280;
 	line-height: 1.5;
@@ -106,7 +106,7 @@
 }
 
 /* ── CTA bullets ─────────────────────────────── */
-.order-bump-cta-list {
+.order-upsale-cta-list {
 	list-style: none;
 	margin: 2px 0 0;
 	padding: 0;
@@ -115,7 +115,7 @@
 	gap: 2px;
 }
 
-.order-bump-cta-list li {
+.order-upsale-cta-list li {
 	font-size: 0.82em;
 	color: #15803d;
 	font-weight: 500;
@@ -125,7 +125,7 @@
 	line-height: 1.5;
 }
 
-.order-bump-cta-check {
+.order-upsale-cta-check {
 	color: #16a34a;
 	font-weight: 800;
 	font-size: 0.95em;
@@ -133,33 +133,33 @@
 }
 
 /* ── Price ───────────────────────────────────── */
-.order-bump-price {
+.order-upsale-price {
 	font-weight: 700;
 	font-size: 1em;
 	margin: 2px 0 0;
 }
 
-.order-bump-price del,
-.order-bump-price del .woocommerce-Price-amount {
+.order-upsale-price del,
+.order-upsale-price del .woocommerce-Price-amount {
 	color: #9ca3af;
 	font-weight: 400;
 	margin-inline-end: 5px;
 }
 
-.order-bump-price ins,
-.order-bump-price ins .woocommerce-Price-amount {
+.order-upsale-price ins,
+.order-upsale-price ins .woocommerce-Price-amount {
 	text-decoration: none;
 	color: #dc2626;
 }
 
 /* ── CTA Button ──────────────────────────────── */
-.order-bump-btn {
+.order-upsale-btn {
 	display: block;
 	width: calc(100% - 32px);
 	margin: 0 16px 16px;
 	padding: 12px 20px;
-	background: var(--bump-btn-bg, #16a34a);
-	color: var(--bump-btn-color, #ffffff) !important;
+	background: var(--upsale-btn-bg, #16a34a);
+	color: var(--upsale-btn-color, #ffffff) !important;
 	border: none;
 	border-radius: 7px;
 	font-family: inherit;
@@ -172,27 +172,27 @@
 	transition: filter 0.15s ease, transform 0.1s ease;
 }
 
-.order-bump-btn:hover:not(:disabled) {
+.order-upsale-btn:hover:not(:disabled) {
 	filter: brightness(1.08);
 }
 
-.order-bump-btn:active:not(:disabled) {
+.order-upsale-btn:active:not(:disabled) {
 	transform: scale(0.985);
 }
 
-.order-bump-btn.is-added {
-	background: var(--bump-btn-bg, #4b7c5e);
-	color: var(--bump-btn-color, #ffffff) !important;
+.order-upsale-btn.is-added {
+	background: var(--upsale-btn-bg, #4b7c5e);
+	color: var(--upsale-btn-color, #ffffff) !important;
 }
 
-.order-bump-btn:disabled,
-.order-bump-btn.is-loading {
+.order-upsale-btn:disabled,
+.order-upsale-btn.is-loading {
 	opacity: 0.6;
 	cursor: not-allowed;
 }
 
 /* ── Urgency bar ─────────────────────────────── */
-.order-bump-urgency {
+.order-upsale-urgency {
 	background: #fffbeb;
 	border-top: 1px solid #fcd34d;
 	color: #92400e;
@@ -203,11 +203,11 @@
 }
 
 /* ── RTL ─────────────────────────────────────── */
-[dir="rtl"] .order-bump-body {
+[dir="rtl"] .order-upsale-body {
 	flex-direction: row-reverse;
 }
 
-[dir="rtl"] .order-bump-badge {
+[dir="rtl"] .order-upsale-badge {
 	border-radius: 0 0 0 8px;
 	inset-inline-start: auto;
 	inset-inline-end: 0;

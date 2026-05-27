@@ -1,27 +1,27 @@
-/* ── Global settings ──────────────────────────── */
-.bump-global-settings {
+﻿/* ── Global settings ──────────────────────────── */
+.upsale-global-settings {
 	max-width: 860px;
 	margin-bottom: 24px;
 }
 
-.bump-global-settings .form-table th {
+.upsale-global-settings .form-table th {
 	width: 180px;
 }
 
 /* ── Cards list ───────────────────────────────── */
-.bump-cards-list {
+.upsale-cards-list {
 	max-width: 860px;
 }
 
 /* ── Single card ──────────────────────────────── */
-.bump-card {
+.upsale-card {
 	margin-bottom: 10px;
 	border: 1px solid #c3c4c7;
 	border-radius: 4px;
 	background: #fff;
 }
 
-.bump-card-header {
+.upsale-card-header {
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -29,20 +29,20 @@
 	min-height: 48px;
 }
 
-.bump-active-label {
+.upsale-active-label {
 	display: flex;
 	align-items: center;
 	flex-shrink: 0;
 }
 
-.bump-active-cb {
+.upsale-active-cb {
 	width: 16px;
 	height: 16px;
 	margin: 0;
 	cursor: pointer;
 }
 
-.bump-card-title {
+.upsale-card-title {
 	flex: 1;
 	font-weight: 600;
 	font-size: 0.95em;
@@ -52,7 +52,7 @@
 	gap: 8px;
 }
 
-.bump-badge-preview {
+.upsale-badge-preview {
 	display: inline-block;
 	background: #e74c3c;
 	color: #fff;
@@ -64,19 +64,19 @@
 	letter-spacing: 0.04em;
 }
 
-.bump-card-actions {
+.upsale-card-actions {
 	display: flex;
 	gap: 6px;
 	flex-shrink: 0;
 }
 
 /* ── Card form table ──────────────────────────── */
-.bump-form-table {
+.upsale-form-table {
 	width: 100%;
 	border-collapse: collapse;
 }
 
-.bump-form-table th {
+.upsale-form-table th {
 	width: 210px;
 	font-weight: 600;
 	color: #444;
@@ -85,25 +85,25 @@
 	white-space: nowrap;
 }
 
-.bump-form-table td {
+.upsale-form-table td {
 	padding: 10px 14px;
 	vertical-align: top;
 }
 
-.bump-form-table tr + tr {
+.upsale-form-table tr + tr {
 	border-top: 1px solid #f0f0f0;
 }
 
-.bump-form-table input[type="text"],
-.bump-form-table textarea {
+.upsale-form-table input[type="text"],
+.upsale-form-table textarea {
 	box-sizing: border-box;
 }
 
-.bump-form-table textarea {
+.upsale-form-table textarea {
 	resize: vertical;
 }
 
-.bump-discount-suffix {
+.upsale-discount-suffix {
 	font-weight: 600;
 	margin-inline-start: 4px;
 	color: #555;
@@ -115,7 +115,7 @@
 }
 
 /* ── Section divider ──────────────────────────── */
-.bump-section-divider {
+.upsale-section-divider {
 	display: flex;
 	align-items: center;
 	margin: 4px 14px 0;
@@ -127,8 +127,8 @@
 	gap: 10px;
 }
 
-.bump-section-divider::before,
-.bump-section-divider::after {
+.upsale-section-divider::before,
+.upsale-section-divider::after {
 	content: '';
 	flex: 1;
 	height: 1px;
@@ -136,26 +136,26 @@
 }
 
 /* ── Color grid ───────────────────────────────── */
-.bump-color-grid {
+.upsale-color-grid {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 20px;
 }
 
-.bump-color-field {
+.upsale-color-field {
 	display: flex;
 	flex-direction: column;
 	gap: 5px;
 	min-width: 130px;
 }
 
-.bump-color-field label {
+.upsale-color-field label {
 	font-size: 0.82em;
 	font-weight: 600;
 	color: #555;
 }
 
-.bump-color-field .wp-picker-container {
+.upsale-color-field .wp-picker-container {
 	display: flex;
 	align-items: center;
 }

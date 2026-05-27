@@ -1,8 +1,8 @@
-jQuery( function ( $ ) {
+﻿jQuery( function ( $ ) {
 
-	$( document ).on( 'click', '.order-bump-btn', function () {
+	$( document ).on( 'click', '.order-upsale-btn', function () {
 		var $btn         = $( this );
-		var $item        = $btn.closest( '.order-bump-item' );
+		var $item        = $btn.closest( '.order-upsale-item' );
 		var productId    = $btn.data( 'product-id' );
 		var cartItemKey  = $btn.data( 'cart-item-key' ) || '';
 		var quantity     = $btn.data( 'quantity' ) || 1;
@@ -11,9 +11,9 @@ jQuery( function ( $ ) {
 
 		$btn.prop( 'disabled', true ).addClass( 'is-loading' );
 
-		$.post( wcOrderBump.ajaxUrl, {
-			action:        'order_bump_toggle',
-			nonce:         wcOrderBump.nonce,
+		$.post( wcOrderUpsale.ajaxUrl, {
+			action:        'order_upsale_toggle',
+			nonce:         wcOrderUpsale.nonce,
 			product_id:    productId,
 			toggle:        toggle,
 			cart_item_key: cartItemKey,

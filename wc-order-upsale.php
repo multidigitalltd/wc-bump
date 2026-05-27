@@ -1,21 +1,23 @@
-<?php
+﻿<?php
 /**
- * Plugin Name: WC Order Bump
+ * Plugin Name: WC Order Upsale
  * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט
  * Version: 1.0.0
+ * Author: Multi Digital
+ * Author URI: https://m-d.co.il
  * Requires at least: 6.4
  * Requires PHP: 8.0
  * Requires Plugins: woocommerce
  * WC requires at least: 8.0
  * WC tested up to: 9.9
- * Text Domain: wc-order-bump
+ * Text Domain: wc-order-upsale
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WC_ORDER_BUMP_VERSION', '1.0.0' );
-define( 'WC_ORDER_BUMP_PATH', plugin_dir_path( __FILE__ ) );
-define( 'WC_ORDER_BUMP_URL', plugin_dir_url( __FILE__ ) );
+define( 'WC_ORDER_UPSALE_VERSION', '1.0.0' );
+define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
+define( 'WC_ORDER_UPSALE_URL', plugin_dir_url( __FILE__ ) );
 
 // HPOS compatibility declaration
 add_action( 'before_woocommerce_init', function () {
@@ -29,9 +31,9 @@ add_action( 'plugins_loaded', function () {
 		return;
 	}
 
-	require_once WC_ORDER_BUMP_PATH . 'includes/class-wc-order-bump-admin.php';
-	require_once WC_ORDER_BUMP_PATH . 'includes/class-wc-order-bump-frontend.php';
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-admin.php';
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-frontend.php';
 
-	new WC_Order_Bump_Admin();
-	new WC_Order_Bump_Frontend();
+	new WC_Order_Upsale_Admin();
+	new WC_Order_Upsale_Frontend();
 } );
