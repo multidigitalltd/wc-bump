@@ -1,0 +1,25 @@
+.wc-order-bumps-admin .order-bumps-table {
+	margin-bottom: 16px;
+	border-collapse: collapse;
+}
+
+.wc-order-bumps-admin .order-bumps-table td,
+.wc-order-bumps-admin .order-bumps-table th {
+	vertical-align: top;
+	padding: 10px 12px;
+}
+
+.wc-order-bumps-admin .order-bumps-table tr:hover td {
+	background: #f9f9f9;
+}
+
+.wc-order-bumps-admin .order-bumps-table input[type="text"],
+.wc-order-bumps-admin .order-bumps-table textarea {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.wc-order-bumps-admin .order-bumps-table textarea {
+	resize: vertical;
+	min-height: 52px;
+}
