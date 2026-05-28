@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Plugin Name: WC Order Upsale
  * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט

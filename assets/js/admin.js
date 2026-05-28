@@ -79,10 +79,19 @@
 	function initProductSearch( $scope ) {
 		$scope.find( '.wc-product-search' ).each( function () {
 			var $el = $( this );
-			if ( $el.hasClass( 'select2-hidden-accessible' ) ) return;
-			if ( typeof $el.selectWoo !== 'function' ) return;
 
-			$el.selectWoo( {
+			// Determine available select library
+			var selectFn = typeof $el.selectWoo === 'function' ? 'selectWoo'
+			             : typeof $el.select2   === 'function' ? 'select2'
+			             : null;
+			if ( ! selectFn ) return;
+
+			// Destroy any existing init (wc-enhanced-select may have run with wrong nonce)
+			if ( $el.hasClass( 'select2-hidden-accessible' ) ) {
+				try { $el[ selectFn ]( 'destroy' ); } catch ( e ) {}
+			}
+
+			$el[ selectFn ]( {
 				ajax: {
 					url: wcOrderUpsaleAdmin.ajaxUrl,
 					dataType: 'json',
