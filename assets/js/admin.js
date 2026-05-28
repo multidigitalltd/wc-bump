@@ -74,10 +74,21 @@ jQuery( function ( $ ) {
 		$td.find( '.upsale-condition-category-wrap' ).toggle( val === 'if_category' );
 	} );
 
-	// ── Color swatch live preview ──────────────────────────────
-	$( document ).on( 'input', '.upsale-color-text', function () {
-		$( this ).siblings( '.upsale-color-swatch' )
-			.css( 'background', this.value || 'transparent' );
+	// ── Native color picker ────────────────────────────────────
+	$( document ).on( 'input change', '.upsale-color-picker-native', function () {
+		var v    = this.value;
+		var $row = $( this ).parent();
+		$row.find( '.upsale-color-value' ).val( v );
+		$row.find( '.upsale-color-val-display' ).text( v ).css( 'color', '#444' );
+		$row.find( '.upsale-color-clear' ).css( 'visibility', 'visible' );
+	} );
+
+	$( document ).on( 'click', '.upsale-color-clear', function () {
+		var $row = $( this ).parent();
+		$row.find( '.upsale-color-value' ).val( '' );
+		$row.find( '.upsale-color-picker-native' ).val( '#ffffff' );
+		$row.find( '.upsale-color-val-display' ).text( 'ברירת מחדל' ).css( 'color', '#aaa' );
+		$( this ).css( 'visibility', 'hidden' );
 	} );
 
 	// ── Product search (Select2 / selectWoo) ───────────────────

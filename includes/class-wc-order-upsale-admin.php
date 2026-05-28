@@ -502,17 +502,25 @@ class WC_Order_Upsale_Admin {
 									'badge_color'       => __( 'צבע Badge', 'wc-order-upsale' ),
 								];
 								foreach ( $color_fields as $field => $label ) :
+									$has_val = ! empty( $style[ $field ] );
 								?>
 									<div class="upsale-color-field">
 										<label><?php echo esc_html( $label ); ?></label>
-										<div style="display:flex;align-items:center;gap:6px">
-											<input type="text"
-												class="upsale-color-text small-text code"
+										<div style="display:flex;align-items:center;gap:5px">
+											<input type="color"
+												class="upsale-color-picker-native"
+												value="<?php echo esc_attr( $style[ $field ] ?: '#ffffff' ); ?>"
+												style="width:36px;height:26px;padding:1px 2px;border:1px solid #c3c4c7;border-radius:3px;cursor:pointer">
+											<input type="hidden"
+												class="upsale-color-value"
 												name="upsales[<?php echo $n; ?>][style][<?php echo esc_attr( $field ); ?>]"
-												value="<?php echo esc_attr( $style[ $field ] ); ?>"
-												placeholder="#rrggbb"
-												maxlength="7">
-											<span class="upsale-color-swatch" style="display:inline-block;width:22px;height:22px;border-radius:3px;border:1px solid #ddd;background:<?php echo esc_attr( $style[ $field ] ?: 'transparent' ); ?>"></span>
+												value="<?php echo esc_attr( $style[ $field ] ); ?>">
+											<span class="upsale-color-val-display" style="font-size:.78em;font-family:monospace;color:<?php echo $has_val ? '#444' : '#aaa'; ?>">
+												<?php echo $has_val ? esc_html( $style[ $field ] ) : __( 'ברירת מחדל', 'wc-order-upsale' ); ?>
+											</span>
+											<button type="button" class="upsale-color-clear button-link"
+												style="font-size:15px;line-height:1;padding:0 2px;min-height:0;color:#bbb;text-decoration:none;<?php echo $has_val ? '' : 'visibility:hidden;'; ?>"
+												title="<?php esc_attr_e( 'נקה', 'wc-order-upsale' ); ?>">&#x2715;</button>
 										</div>
 									</div>
 								<?php endforeach; ?>
