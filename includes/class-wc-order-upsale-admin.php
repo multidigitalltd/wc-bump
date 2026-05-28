@@ -30,9 +30,7 @@ class WC_Order_Upsale_Admin {
 		}
 
 		wp_enqueue_style( 'woocommerce_admin_styles' );
-		wp_enqueue_style( 'wp-color-picker' );
 		wp_enqueue_script( 'wc-enhanced-select' );
-		wp_enqueue_script( 'wp-color-picker' );
 
 		wp_enqueue_style(
 			'wc-order-upsale-admin',
@@ -43,7 +41,7 @@ class WC_Order_Upsale_Admin {
 		wp_enqueue_script(
 			'wc-order-upsale-admin',
 			WC_ORDER_UPSALE_URL . 'assets/js/admin.js',
-			[ 'jquery', 'wc-enhanced-select', 'wp-color-picker' ],
+			[ 'jquery', 'wc-enhanced-select' ],
 			WC_ORDER_UPSALE_VERSION,
 			true
 		);
@@ -507,11 +505,15 @@ class WC_Order_Upsale_Admin {
 								?>
 									<div class="upsale-color-field">
 										<label><?php echo esc_html( $label ); ?></label>
-										<input type="text"
-											class="upsale-color-picker"
-											name="upsales[<?php echo $n; ?>][style][<?php echo esc_attr( $field ); ?>]"
-											value="<?php echo esc_attr( $style[ $field ] ); ?>"
-											data-default-color="">
+										<div style="display:flex;align-items:center;gap:6px">
+											<input type="text"
+												class="upsale-color-text small-text code"
+												name="upsales[<?php echo $n; ?>][style][<?php echo esc_attr( $field ); ?>]"
+												value="<?php echo esc_attr( $style[ $field ] ); ?>"
+												placeholder="#rrggbb"
+												maxlength="7">
+											<span class="upsale-color-swatch" style="display:inline-block;width:22px;height:22px;border-radius:3px;border:1px solid #ddd;background:<?php echo esc_attr( $style[ $field ] ?: 'transparent' ); ?>"></span>
+										</div>
 									</div>
 								<?php endforeach; ?>
 							</div>

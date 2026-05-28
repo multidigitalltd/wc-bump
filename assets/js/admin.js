@@ -1,4 +1,4 @@
-﻿jQuery( function ( $ ) {
+jQuery( function ( $ ) {
 
 	var rowIndex = $( '#order-upsales-list .upsale-card' ).length;
 
@@ -8,7 +8,6 @@
 		var $card = $( html );
 		$( '#order-upsales-list' ).append( $card );
 		initProductSearch( $card );
-		initColorPickers( $card );
 		$card.find( '.upsale-card-body' ).slideDown( 200 );
 		rowIndex++;
 	} );
@@ -75,18 +74,23 @@
 		$td.find( '.upsale-condition-category-wrap' ).toggle( val === 'if_category' );
 	} );
 
+	// ── Color swatch live preview ──────────────────────────────
+	$( document ).on( 'input', '.upsale-color-text', function () {
+		$( this ).siblings( '.upsale-color-swatch' )
+			.css( 'background', this.value || 'transparent' );
+	} );
+
 	// ── Product search (Select2 / selectWoo) ───────────────────
 	function initProductSearch( $scope ) {
 		$scope.find( '.wc-product-search' ).each( function () {
 			var $el = $( this );
 
-			// Determine available select library
 			var selectFn = typeof $el.selectWoo === 'function' ? 'selectWoo'
 			             : typeof $el.select2   === 'function' ? 'select2'
 			             : null;
 			if ( ! selectFn ) return;
 
-			// Destroy any existing init (wc-enhanced-select may have run with wrong nonce)
+			// Destroy any prior init (wc-enhanced-select may have run with wrong nonce)
 			if ( $el.hasClass( 'select2-hidden-accessible' ) ) {
 				try { $el[ selectFn ]( 'destroy' ); } catch ( e ) {}
 			}
@@ -117,15 +121,9 @@
 		} );
 	}
 
-	// ── Color pickers ──────────────────────────────────────────
-	function initColorPickers( $scope ) {
-		$scope.find( '.upsale-color-picker' ).wpColorPicker();
-	}
-
 	// Init on page load
 	$( '.upsale-card' ).each( function () {
 		initProductSearch( $( this ) );
-		initColorPickers( $( this ) );
 	} );
 
 } );

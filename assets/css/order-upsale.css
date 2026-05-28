@@ -1,32 +1,26 @@
-﻿/* ── Wrapper ─────────────────────────────────── */
 .wc-order-upsales-wrapper {
-	margin: 24px 0 12px;
+	margin: 20px 0 8px;
 	font-family: inherit;
 }
 
 .order-upsales-heading {
-	font-size: 1em;
+	font-size: .9em;
 	font-weight: 700;
-	margin: 0 0 12px;
+	margin: 0 0 10px;
 	color: #1a1a1a;
+	text-transform: uppercase;
+	letter-spacing: .06em;
 }
 
-/* ── Card ────────────────────────────────────── */
+/* ── Card ─────────────────────────────────────── */
 .order-upsale-item {
 	position: relative;
 	border: 1.5px solid var(--upsale-border, #e2e8f0);
-	border-radius: 10px;
-	padding: 0;
-	margin-bottom: 12px;
-	background: var(--upsale-bg, #ffffff);
-	box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.03);
-	transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+	border-radius: 8px;
+	margin-bottom: 10px;
+	background: var(--upsale-bg, #fff);
 	overflow: hidden;
-}
-
-.order-upsale-item:hover {
-	border-color: var(--upsale-border, #c4d0de);
-	box-shadow: 0 2px 12px rgba(0,0,0,.09);
+	transition: border-color .2s;
 }
 
 .order-upsale-item.is-added {
@@ -35,115 +29,107 @@
 }
 
 .order-upsale-item.is-loading {
-	opacity: 0.55;
+	opacity: .5;
 	pointer-events: none;
 }
 
-/* ── Badge ───────────────────────────────────── */
+/* ── Badge ────────────────────────────────────── */
 .order-upsale-badge {
 	display: inline-block;
-	background: var(--upsale-badge-bg, #dc2626);
-	color: #fff;
-	font-size: 0.68em;
-	font-weight: 700;
-	text-transform: uppercase;
-	letter-spacing: 0.07em;
-	padding: 3px 10px 3px 12px;
-	border-radius: 0 0 8px 0;
 	position: absolute;
 	top: 0;
 	inset-inline-start: 0;
-	line-height: 1.8;
+	background: var(--upsale-badge-bg, #dc2626);
+	color: #fff;
+	font-size: .67em;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: .07em;
+	padding: 2px 10px;
+	border-radius: 0 0 6px 0;
+	line-height: 1.9;
 }
 
-/* ── Body ────────────────────────────────────── */
+/* ── Body ─────────────────────────────────────── */
 .order-upsale-body {
 	display: flex;
 	align-items: flex-start;
-	gap: 14px;
-	padding: 16px 16px 14px;
+	gap: 12px;
+	padding: 14px;
 }
 
 .order-upsale-item .order-upsale-badge + .order-upsale-body {
-	padding-top: 32px;
+	padding-top: 30px;
 }
 
-/* ── Image ───────────────────────────────────── */
-.order-upsale-image {
-	flex-shrink: 0;
-}
-
+/* ── Image ────────────────────────────────────── */
 .order-upsale-image img {
-	width: 72px;
-	height: 72px;
+	width: 66px;
+	height: 66px;
 	object-fit: cover;
-	border-radius: 7px;
+	border-radius: 5px;
 	display: block;
-	border: 1px solid rgba(0,0,0,.07);
 }
 
-/* ── Content ─────────────────────────────────── */
+/* ── Content ──────────────────────────────────── */
 .order-upsale-content {
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 5px;
+	gap: 4px;
 }
 
 .order-upsale-title {
 	font-weight: 700;
-	color: #111827;
-	font-size: 0.97em;
+	color: #111;
+	font-size: .94em;
 	line-height: 1.3;
 	margin: 0;
 }
 
 .order-upsale-description {
-	font-size: 0.83em;
+	font-size: .81em;
 	color: #6b7280;
-	line-height: 1.5;
+	line-height: 1.45;
 	margin: 0;
 }
 
-/* ── CTA bullets ─────────────────────────────── */
+/* ── CTA bullets ──────────────────────────────── */
 .order-upsale-cta-list {
 	list-style: none;
 	margin: 2px 0 0;
 	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 1px;
 }
 
 .order-upsale-cta-list li {
-	font-size: 0.82em;
+	font-size: .8em;
 	color: #15803d;
 	font-weight: 500;
 	display: flex;
 	align-items: baseline;
-	gap: 5px;
-	line-height: 1.5;
+	gap: 4px;
 }
 
 .order-upsale-cta-check {
-	color: #16a34a;
 	font-weight: 800;
-	font-size: 0.95em;
 	flex-shrink: 0;
 }
 
-/* ── Price ───────────────────────────────────── */
+/* ── Price ────────────────────────────────────── */
 .order-upsale-price {
 	font-weight: 700;
-	font-size: 1em;
-	margin: 2px 0 0;
+	font-size: .95em;
+	margin: 3px 0 0;
 }
 
 .order-upsale-price del,
 .order-upsale-price del .woocommerce-Price-amount {
 	color: #9ca3af;
 	font-weight: 400;
-	margin-inline-end: 5px;
+	margin-inline-end: 4px;
 }
 
 .order-upsale-price ins,
@@ -152,63 +138,49 @@
 	color: #dc2626;
 }
 
-/* ── CTA Button ──────────────────────────────── */
+/* ── Button ───────────────────────────────────── */
 .order-upsale-btn {
 	display: block;
-	width: calc(100% - 32px);
-	margin: 0 16px 16px;
-	padding: 12px 20px;
-	background: var(--upsale-btn-bg, #16a34a);
-	color: var(--upsale-btn-color, #ffffff) !important;
+	width: calc(100% - 28px);
+	margin: 0 14px 14px;
+	padding: 11px 16px;
+	background: var(--upsale-btn-bg, #111827);
+	color: var(--upsale-btn-color, #fff) !important;
 	border: none;
-	border-radius: 7px;
-	font-family: inherit;
-	font-size: 0.97em;
+	border-radius: 6px;
+	font: inherit;
+	font-size: .93em;
 	font-weight: 700;
 	text-align: center;
 	cursor: pointer;
-	line-height: 1.4;
-	letter-spacing: 0.01em;
-	transition: filter 0.15s ease, transform 0.1s ease;
+	letter-spacing: .01em;
+	transition: opacity .15s;
 }
 
 .order-upsale-btn:hover:not(:disabled) {
-	filter: brightness(1.08);
-}
-
-.order-upsale-btn:active:not(:disabled) {
-	transform: scale(0.985);
+	opacity: .8;
 }
 
 .order-upsale-btn.is-added {
-	background: var(--upsale-btn-bg, #4b7c5e);
-	color: var(--upsale-btn-color, #ffffff) !important;
+	background: var(--upsale-btn-bg, #374151);
 }
 
-.order-upsale-btn:disabled,
-.order-upsale-btn.is-loading {
-	opacity: 0.6;
+.order-upsale-btn:disabled {
+	opacity: .5;
 	cursor: not-allowed;
 }
 
-/* ── Urgency bar ─────────────────────────────── */
+/* ── Urgency bar ──────────────────────────────── */
 .order-upsale-urgency {
 	background: #fffbeb;
 	border-top: 1px solid #fcd34d;
 	color: #92400e;
-	font-size: 0.82em;
+	font-size: .8em;
 	font-weight: 600;
-	padding: 7px 16px;
+	padding: 6px 14px;
 	text-align: center;
 }
 
-/* ── RTL ─────────────────────────────────────── */
-[dir="rtl"] .order-upsale-body {
-	flex-direction: row-reverse;
-}
-
-[dir="rtl"] .order-upsale-badge {
-	border-radius: 0 0 0 8px;
-	inset-inline-start: auto;
-	inset-inline-end: 0;
-}
+/* ── RTL ──────────────────────────────────────── */
+[dir="rtl"] .order-upsale-body { flex-direction: row-reverse; }
+[dir="rtl"] .order-upsale-badge { border-radius: 0 0 0 6px; inset-inline-start: auto; inset-inline-end: 0; }

@@ -1,4 +1,4 @@
-﻿/* ── Global settings ──────────────────────────── */
+/* ── Global settings ──────────────────────────── */
 .upsale-global-settings {
 	max-width: 860px;
 	margin-bottom: 24px;
@@ -139,25 +139,19 @@
 .upsale-color-grid {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 20px;
+	gap: 16px;
 }
 
 .upsale-color-field {
 	display: flex;
 	flex-direction: column;
-	gap: 5px;
-	min-width: 130px;
+	gap: 4px;
 }
 
 .upsale-color-field label {
 	font-size: 0.82em;
 	font-weight: 600;
 	color: #555;
-}
-
-.upsale-color-field .wp-picker-container {
-	display: flex;
-	align-items: center;
 }
 
 /* ── Code textareas ───────────────────────────── */
