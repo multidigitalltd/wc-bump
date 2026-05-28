@@ -131,8 +131,9 @@ class WC_Order_Upsale_Frontend {
 			$active_btn_text    = $is_added ? $button_remove_text : $button_text;
 
 			$inline_style = $this->build_inline_style( $upsale['style'] ?? [] );
+			$custom_class = ! empty( $upsale['custom_class'] ) ? ' ' . esc_attr( $upsale['custom_class'] ) : '';
 			?>
-			<div class="order-upsale-item<?php echo $is_added ? ' is-added' : ''; ?>"
+			<div class="order-upsale-item<?php echo $is_added ? ' is-added' : ''; ?><?php echo $custom_class; ?>"
 				 data-product-id="<?php echo esc_attr( $product_id ); ?>"
 				 <?php echo $inline_style ? 'style="' . esc_attr( $inline_style ) . '"' : ''; ?>>
 

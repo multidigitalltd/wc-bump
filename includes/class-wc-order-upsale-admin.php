@@ -93,9 +93,13 @@ class WC_Order_Upsale_Admin {
 			$raw_cta   = (array) ( $data['cta_lines'] ?? [] );
 			$cta_lines = array_slice( array_values( array_filter( array_map( 'sanitize_text_field', $raw_cta ) ) ), 0, 3 );
 
+			$raw_class   = $data['custom_class'] ?? '';
+			$custom_class = implode( ' ', array_filter( array_map( 'sanitize_html_class', explode( ' ', $raw_class ) ) ) );
+
 			$upsales[] = [
 				'product_id'         => $product_id,
 				'active'             => (bool) ( $data['active'] ?? false ),
+				'custom_class'       => $custom_class,
 				'title'              => sanitize_text_field( $data['title']              ?? '' ),
 				'description'        => wp_kses_post( $data['description']               ?? '' ),
 				'badge_text'         => sanitize_text_field( $data['badge_text']         ?? '' ),
@@ -195,7 +199,25 @@ class WC_Order_Upsale_Admin {
 								<td>
 									<textarea id="setting_custom_css" name="setting_custom_css"
 										rows="6" class="large-text code"><?php echo esc_textarea( $settings['custom_css'] ); ?></textarea>
-									<p class="description"><?php esc_html_e( 'CSS מותאם אישית שיוחל על כל ה-upsales בצ\'קאאוט.', 'wc-order-upsale' ); ?></p>
+									<p class="description">
+										<?php esc_html_e( 'CSS מותאם אישית שיוחל על כל ה-upsales בצ\'קאאוט.', 'wc-order-upsale' ); ?>
+										<br><strong><?php esc_html_e( 'סלקטורים זמינים:', 'wc-order-upsale' ); ?></strong><br>
+										<code>.wc-order-upsales-wrapper</code> — <?php esc_html_e( 'עטיפת כל הבלוק', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsales-heading</code> — <?php esc_html_e( 'כותרת הבלוק', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-item</code> — <?php esc_html_e( 'כרטיס בודד', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-item.is-added</code> — <?php esc_html_e( 'כרטיס שנוסף לסל', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-item[data-product-id="123"]</code> — <?php esc_html_e( 'כרטיס ספציפי לפי ID מוצר', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-item.my-class</code> — <?php esc_html_e( 'כרטיס לפי CSS Class מותאם (ראה שדה בכל כרטיס)', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-badge</code> — <?php esc_html_e( 'תג Badge', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-image img</code> — <?php esc_html_e( 'תמונת המוצר', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-title</code> — <?php esc_html_e( 'כותרת המוצר', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-description</code> — <?php esc_html_e( 'תיאור', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-cta-list</code> — <?php esc_html_e( 'רשימת משפטי הנעה', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-price</code> — <?php esc_html_e( 'מחיר', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-btn</code> — <?php esc_html_e( 'כפתור הוספה', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-btn.is-added</code> — <?php esc_html_e( 'כפתור אחרי הוספה', 'wc-order-upsale' ); ?><br>
+										<code>.order-upsale-urgency</code> — <?php esc_html_e( 'שורת דחיפות', 'wc-order-upsale' ); ?>
+									</p>
 								</td>
 							</tr>
 						</table>
@@ -258,6 +280,7 @@ class WC_Order_Upsale_Admin {
 			'custom_css'        => '',
 		] );
 
+		$custom_class = $upsale['custom_class'] ?? '';
 		$product      = $product_id ? wc_get_product( $product_id ) : null;
 		$product_name = $product ? $product->get_name() : __( 'לא נבחר מוצר', 'wc-order-upsale' );
 		$cond_product = ( $condition_type === 'if_product' && $condition_value ) ? wc_get_product( $condition_value ) : null;
@@ -529,6 +552,21 @@ class WC_Order_Upsale_Admin {
 					</tr>
 
 					<!-- Custom CSS per upsale -->
+					<tr>
+						<th><?php esc_html_e( 'CSS Class לכרטיס', 'wc-order-upsale' ); ?></th>
+						<td>
+							<input type="text"
+								name="upsales[<?php echo $n; ?>][custom_class]"
+								value="<?php echo esc_attr( $custom_class ); ?>"
+								placeholder="flash-sale vip-offer"
+								class="regular-text code">
+							<p class="description">
+								<?php esc_html_e( 'מחלקות שיתווספו ל-div הכרטיס (מרובות — מופרדות ברווח). לדוגמה: ', 'wc-order-upsale' ); ?>
+								<code>.flash-sale .order-upsale-item { border-color: #f59e0b; }</code>
+							</p>
+						</td>
+					</tr>
+
 					<tr>
 						<th><?php esc_html_e( 'CSS מותאם לכרטיס זה', 'wc-order-upsale' ); ?></th>
 						<td>
