@@ -20,11 +20,17 @@ class WC_Order_Upsale_Frontend {
 			? 'woocommerce_review_order_after_order_total'
 			: 'woocommerce_review_order_before_payment';
 
-		// Classic shortcode-based checkout.
+		// Classic shortcode-based checkout (position setting).
 		add_action( $classic_hook,                                 [ $this, 'display_upsales' ] );
+
+		// Additional hook — fires reliably with Elementor Pro checkout widget.
+		add_action( 'woocommerce_checkout_order_review',           [ $this, 'display_upsales' ], 5 );
 
 		// Fallback for WooCommerce Block Checkout (WC 8+ default).
 		add_action( 'wp_footer',                                   [ $this, 'inject_for_block_checkout' ] );
+
+		// Shortcode — user can place [wc_order_upsales] anywhere (e.g. Elementor Shortcode widget).
+		add_shortcode( 'wc_order_upsales',                         [ $this, 'shortcode_output' ] );
 
 		add_action( 'wp_enqueue_scripts',                          [ $this, 'enqueue_scripts' ] );
 		add_action( 'wp_head',                                     [ $this, 'output_custom_css' ] );
@@ -153,7 +159,18 @@ class WC_Order_Upsale_Frontend {
 		<?php
 	}
 
+	/** Shortcode [wc_order_upsales] — place anywhere in Elementor or page content. */
+	public function shortcode_output(): string {
+		ob_start();
+		$this->display_upsales();
+		return ob_get_clean();
+	}
+
 	public function display_upsales(): void {
+		// Prevent double rendering when multiple hooks fire on the same page.
+		if ( $this->upsales_rendered ) {
+			return;
+		}
 		$upsales        = WC_Order_Upsale_Admin::get_upsales();
 		$active_upsales = array_values( array_filter( $upsales, fn( $b ) => ! empty( $b['active'] ) && ! empty( $b['product_id'] ) ) );
 
