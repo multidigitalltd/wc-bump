@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WC Order Upsale
  * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט
- * Version: 1.2.1
+ * Version: 1.2.2
  * Author: Multi-Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.2.1' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.2.2' );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_URL', plugin_dir_url( __FILE__ ) );
 

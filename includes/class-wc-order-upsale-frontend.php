@@ -20,11 +20,8 @@ class WC_Order_Upsale_Frontend {
 			? 'woocommerce_review_order_after_order_total'
 			: 'woocommerce_review_order_before_payment';
 
-		// Classic shortcode-based checkout (position setting).
+		// Classic shortcode-based checkout (respects position setting).
 		add_action( $classic_hook,                                 [ $this, 'display_upsales' ] );
-
-		// Additional hook — fires reliably with Elementor Pro checkout widget.
-		add_action( 'woocommerce_checkout_order_review',           [ $this, 'display_upsales' ], 5 );
 
 		// Fallback for WooCommerce Block Checkout (WC 8+ default).
 		add_action( 'wp_footer',                                   [ $this, 'inject_for_block_checkout' ] );
@@ -40,7 +37,7 @@ class WC_Order_Upsale_Frontend {
 
 		add_filter( 'woocommerce_add_cart_item_data',              [ $this, 'flag_cart_item' ], 10, 2 );
 		add_filter( 'woocommerce_get_cart_item_from_session',      [ $this, 'restore_cart_item_data' ], 10, 2 );
-		add_action( 'woocommerce_before_calculate_totals',         [ $this, 'apply_discount' ], 20 );
+		add_action( 'woocommerce_before_calculate_totals',         [ $this, 'apply_discount' ], 99 );
 	}
 
 	public function enqueue_scripts(): void {
@@ -167,6 +164,9 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	public function display_upsales(): void {
+		if ( ! is_checkout() ) {
+			return;
+		}
 		// Prevent double rendering when multiple hooks fire on the same page.
 		if ( $this->upsales_rendered ) {
 			return;
@@ -373,7 +373,8 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	public function flag_cart_item( array $data, int $product_id ): array {
-		if ( self::$upsale_product_adding === $product_id ) {
+		// Loose comparison — WC may pass product_id as string in some contexts.
+		if ( self::$upsale_product_adding == $product_id ) {
 			$data['_order_upsale'] = true;
 			if ( ! empty( self::$upsale_discount_adding ) ) {
 				$data['_upsale_discount'] = self::$upsale_discount_adding;
@@ -399,39 +400,44 @@ class WC_Order_Upsale_Frontend {
 			return;
 		}
 
-		$config_map = null;
+		// Build discount map from current config (authoritative source).
+		$config_map = [];
+		foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
+			$pid  = (int) ( $upsale['product_id'] ?? 0 );
+			$type = $upsale['discount_type']  ?? 'none';
+			$val  = (float) ( $upsale['discount_value'] ?? 0 );
+			if ( $pid && ! empty( $upsale['active'] ) && $type !== 'none' && $val > 0 ) {
+				$config_map[ $pid ] = [ 'type' => $type, 'value' => $val ];
+			}
+		}
+
+		if ( empty( $config_map ) ) {
+			return;
+		}
 
 		foreach ( $cart->get_cart() as $item ) {
 			if ( empty( $item['_order_upsale'] ) ) {
 				continue;
 			}
 
-			$discount = $item['_upsale_discount'] ?? [];
-
-			if ( empty( $discount ) ) {
-				if ( $config_map === null ) {
-					$config_map = [];
-					foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
-						$pid  = (int) ( $upsale['product_id'] ?? 0 );
-						$type = $upsale['discount_type']  ?? 'none';
-						$val  = (float) ( $upsale['discount_value'] ?? 0 );
-						if ( $pid && $type !== 'none' && $val > 0 ) {
-							$config_map[ $pid ] = [ 'type' => $type, 'value' => $val ];
-						}
-					}
-				}
-				$discount = $config_map[ (int) $item['product_id'] ] ?? [];
-			}
+			$pid      = (int) $item['product_id'];
+			// Prefer session-stored discount; fall back to current config.
+			$discount = ! empty( $item['_upsale_discount'] )
+				? $item['_upsale_discount']
+				: ( $config_map[ $pid ] ?? [] );
 
 			if ( empty( $discount ) ) {
 				continue;
 			}
 
 			$product  = $item['data'];
-			$original = (float) $product->get_regular_price() ?: (float) $product->get_price();
-			$new      = $discount['type'] === 'percent'
-				? $original * ( 1 - (float) $discount['value'] / 100 )
-				: $original - (float) $discount['value'];
+			$base     = (float) $product->get_regular_price();
+			if ( $base <= 0 ) {
+				$base = (float) $product->get_price();
+			}
+			$new = $discount['type'] === 'percent'
+				? $base * ( 1 - (float) $discount['value'] / 100 )
+				: $base - (float) $discount['value'];
 			$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
 		}
 	}

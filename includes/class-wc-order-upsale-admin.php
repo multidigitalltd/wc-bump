@@ -319,11 +319,10 @@ class WC_Order_Upsale_Admin {
 
 			<!-- Header -->
 			<div class="upsale-card-header postbox-header">
-				<label class="upsale-active-label">
-					<input type="hidden"   name="upsales[<?php echo $n; ?>][active]" value="0">
-					<input type="checkbox" name="upsales[<?php echo $n; ?>][active]" value="1"
-						class="upsale-active-cb" <?php checked( $active ); ?>>
-				</label>
+				<select name="upsales[<?php echo $n; ?>][active]" class="upsale-status-select">
+					<option value="1" <?php selected( $active, true ); ?>>&#9679; <?php esc_html_e( 'פורסם', 'wc-order-upsale' ); ?></option>
+					<option value="0" <?php selected( $active, false ); ?>>&#9675; <?php esc_html_e( 'טיוטה', 'wc-order-upsale' ); ?></option>
+				</select>
 				<span class="upsale-card-title hndle">
 					<span class="upsale-card-product-name"><?php echo esc_html( $product_name ); ?></span>
 					<?php if ( $badge_text ) : ?>
