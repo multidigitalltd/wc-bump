@@ -36,7 +36,11 @@ class WC_Order_Upsale_Frontend {
 		add_action( 'wp_ajax_nopriv_order_upsale_toggle',          [ $this, 'ajax_toggle' ] );
 
 		add_filter( 'woocommerce_add_cart_item_data',              [ $this, 'flag_cart_item' ], 10, 2 );
+		// Apply discounted price immediately when the item is first placed in the cart array.
+		add_filter( 'woocommerce_add_cart_item',                   [ $this, 'set_price_on_add' ], 99, 1 );
+		// Restore custom data AND price when cart loads from session.
 		add_filter( 'woocommerce_get_cart_item_from_session',      [ $this, 'restore_cart_item_data' ], 10, 2 );
+		// Re-apply before every totals calculation (catches any plugin that resets the price).
 		add_action( 'woocommerce_before_calculate_totals',         [ $this, 'apply_discount' ], 99 );
 	}
 
@@ -385,22 +389,64 @@ class WC_Order_Upsale_Frontend {
 		return $data;
 	}
 
-	public function restore_cart_item_data( array $item, array $values ): array {
-		if ( isset( $values['_order_upsale'] ) ) {
-			$item['_order_upsale'] = (bool) $values['_order_upsale'];
+	/**
+	 * Layer 1: Apply discounted price immediately when item is first added to cart.
+	 * Fires after woocommerce_add_cart_item_data, so _upsale_discount is already set.
+	 */
+	public function set_price_on_add( array $cart_item ): array {
+		if ( ! empty( $cart_item['_order_upsale'] ) && ! empty( $cart_item['_upsale_discount'] ) ) {
+			$this->apply_price_to_product( $cart_item['data'], $cart_item['_upsale_discount'] );
 		}
-		if ( isset( $values['_upsale_discount'] ) && is_array( $values['_upsale_discount'] ) ) {
+		return $cart_item;
+	}
+
+	/**
+	 * Layer 2: Restore custom data + price when cart loads from WC session.
+	 */
+	public function restore_cart_item_data( array $item, array $values ): array {
+		if ( ! empty( $values['_order_upsale'] ) ) {
+			$item['_order_upsale'] = true;
+		}
+		if ( ! empty( $values['_upsale_discount'] ) && is_array( $values['_upsale_discount'] ) ) {
 			$item['_upsale_discount'] = $values['_upsale_discount'];
+			// Apply discounted price right as the item is restored from session.
+			if ( isset( $item['data'] ) && $item['data'] instanceof WC_Product ) {
+				$this->apply_price_to_product( $item['data'], $values['_upsale_discount'] );
+			}
 		}
 		return $item;
 	}
 
+	/** Shared helper: calculates and sets the discounted price on a product object. */
+	private function apply_price_to_product( WC_Product $product, array $discount ): void {
+		$type  = $discount['type']  ?? 'none';
+		$value = (float) ( $discount['value'] ?? 0 );
+		if ( $type === 'none' || $value <= 0 ) {
+			return;
+		}
+		$base = (float) $product->get_regular_price();
+		if ( $base <= 0 ) {
+			$base = (float) $product->get_price();
+		}
+		if ( $base <= 0 ) {
+			return;
+		}
+		$new = $type === 'percent'
+			? $base * ( 1 - $value / 100 )
+			: $base - $value;
+		$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
+	}
+
+	/**
+	 * Layer 3: Re-apply discounted prices just before WC calculates totals.
+	 * Runs at priority 99 so it overrides any plugin that may have reset prices.
+	 */
 	public function apply_discount( \WC_Cart $cart ): void {
 		if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
 			return;
 		}
 
-		// Build discount map from current config (authoritative source).
+		// Build config map as fallback when session data is missing.
 		$config_map = [];
 		foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
 			$pid  = (int) ( $upsale['product_id'] ?? 0 );
@@ -411,17 +457,12 @@ class WC_Order_Upsale_Frontend {
 			}
 		}
 
-		if ( empty( $config_map ) ) {
-			return;
-		}
-
 		foreach ( $cart->get_cart() as $item ) {
 			if ( empty( $item['_order_upsale'] ) ) {
 				continue;
 			}
 
 			$pid      = (int) $item['product_id'];
-			// Prefer session-stored discount; fall back to current config.
 			$discount = ! empty( $item['_upsale_discount'] )
 				? $item['_upsale_discount']
 				: ( $config_map[ $pid ] ?? [] );
@@ -430,15 +471,7 @@ class WC_Order_Upsale_Frontend {
 				continue;
 			}
 
-			$product  = $item['data'];
-			$base     = (float) $product->get_regular_price();
-			if ( $base <= 0 ) {
-				$base = (float) $product->get_price();
-			}
-			$new = $discount['type'] === 'percent'
-				? $base * ( 1 - (float) $discount['value'] / 100 )
-				: $base - (float) $discount['value'];
-			$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
+			$this->apply_price_to_product( $item['data'], $discount );
 		}
 	}
 
