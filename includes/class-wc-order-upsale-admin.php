@@ -334,6 +334,9 @@ class WC_Order_Upsale_Admin {
 					<button type="button" class="button button-small upsale-toggle-body">
 						<?php esc_html_e( 'הגדרות', 'wc-order-upsale' ); ?> &#9660;
 					</button>
+					<button type="button" class="button button-small duplicate-upsale">
+						<?php esc_html_e( 'שכפל', 'wc-order-upsale' ); ?>
+					</button>
 					<button type="button" class="button button-small remove-upsale" style="color:#b32d2e">
 						<?php esc_html_e( 'הסר', 'wc-order-upsale' ); ?>
 					</button>

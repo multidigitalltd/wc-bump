@@ -10,14 +10,22 @@ class WC_Order_Upsale_Frontend {
 	/** Cached settings — avoids repeated get_option() calls per request. */
 	private array $settings;
 
+	/** Set to true once display_upsales() actually outputs HTML. */
+	private bool $upsales_rendered = false;
+
 	public function __construct() {
 		$this->settings = WC_Order_Upsale_Admin::get_settings();
 
-		$hook = $this->settings['position'] === 'after_order_table'
+		$classic_hook = $this->settings['position'] === 'after_order_table'
 			? 'woocommerce_review_order_after_order_total'
 			: 'woocommerce_review_order_before_payment';
 
-		add_action( $hook,                                         [ $this, 'display_upsales' ] );
+		// Classic shortcode-based checkout.
+		add_action( $classic_hook,                                 [ $this, 'display_upsales' ] );
+
+		// Fallback for WooCommerce Block Checkout (WC 8+ default).
+		add_action( 'wp_footer',                                   [ $this, 'inject_for_block_checkout' ] );
+
 		add_action( 'wp_enqueue_scripts',                          [ $this, 'enqueue_scripts' ] );
 		add_action( 'wp_head',                                     [ $this, 'output_custom_css' ] );
 
@@ -86,11 +94,75 @@ class WC_Order_Upsale_Frontend {
 		}
 	}
 
+	/**
+	 * Block Checkout fallback: if classic hooks never fired (WC Block Checkout),
+	 * output the upsales HTML hidden in the footer and use JS to inject them
+	 * into the correct position in the block checkout.
+	 */
+	public function inject_for_block_checkout(): void {
+		if ( ! is_checkout() || $this->upsales_rendered ) {
+			return;
+		}
+
+		ob_start();
+		$this->display_upsales();
+		$html = ob_get_clean();
+
+		if ( ! $html ) {
+			return;
+		}
+
+		// Output as a hidden container; JS will move it into the block checkout.
+		echo '<div id="wc-upsales-block-payload" style="display:none">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+		?>
+		<script id="wc-upsales-block-injector">
+		(function () {
+			var SELECTORS = [
+				'.wc-block-checkout__payment-method',
+				'.wc-block-checkout__order-summary-cart-items',
+				'.wc-block-components-totals-wrapper',
+				'.wp-block-woocommerce-checkout-payment-block',
+				'.wp-block-woocommerce-checkout-order-summary-block',
+				'#payment',
+			];
+
+			function inject() {
+				var src = document.getElementById( 'wc-upsales-block-payload' );
+				if ( ! src ) return false;
+
+				for ( var i = 0; i < SELECTORS.length; i++ ) {
+					var target = document.querySelector( SELECTORS[ i ] );
+					if ( target ) {
+						src.style.display = '';
+						target.parentNode.insertBefore( src, target );
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// Try immediately, then retry once blocks have hydrated.
+			if ( ! inject() ) {
+				var attempts = 0;
+				var timer = setInterval( function () {
+					if ( inject() || ++attempts >= 10 ) clearInterval( timer );
+				}, 300 );
+			}
+		})();
+		</script>
+		<?php
+	}
+
 	public function display_upsales(): void {
 		$upsales        = WC_Order_Upsale_Admin::get_upsales();
 		$active_upsales = array_values( array_filter( $upsales, fn( $b ) => ! empty( $b['active'] ) && ! empty( $b['product_id'] ) ) );
 
 		if ( empty( $active_upsales ) ) {
+			return;
+		}
+
+		// Guard against uninitialised cart (can happen in some edge cases).
+		if ( null === WC()->cart ) {
 			return;
 		}
 
@@ -137,7 +209,6 @@ class WC_Order_Upsale_Frontend {
 			$inline_style = $this->build_inline_style( $upsale['style'] ?? [] );
 			$custom_class = ! empty( $upsale['custom_class'] ) ? ' ' . esc_attr( $upsale['custom_class'] ) : '';
 
-			// Full-size image URL for lightbox.
 			$image_id  = $product->get_image_id();
 			$full_url  = $image_id ? wp_get_attachment_image_url( $image_id, 'full' ) : '';
 			$image_tag = $product->get_image( 'woocommerce_thumbnail' );
@@ -200,6 +271,7 @@ class WC_Order_Upsale_Frontend {
 		$output = ob_get_clean();
 
 		if ( $has_visible ) {
+			$this->upsales_rendered = true;
 			echo '<section class="wc-order-upsales-wrapper" aria-label="' . esc_attr( $heading ) . '">';
 			echo '<h3 class="order-upsales-heading" aria-hidden="true">' . esc_html( $heading ) . '</h3>';
 			echo $output; // phpcs:ignore WordPress.Security.EscapeOutput
@@ -235,6 +307,10 @@ class WC_Order_Upsale_Frontend {
 			return true;
 		}
 
+		if ( null === WC()->cart ) {
+			return true;
+		}
+
 		foreach ( WC()->cart->get_cart() as $item ) {
 			if ( $type === 'if_product'  && (int) $item['product_id'] === $value ) {
 				return true;
@@ -266,6 +342,9 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	private function get_upsales_in_cart( array $product_ids ): array {
+		if ( null === WC()->cart ) {
+			return [];
+		}
 		$in_cart = [];
 		foreach ( WC()->cart->get_cart() as $key => $item ) {
 			$pid = (int) $item['product_id'];
@@ -288,10 +367,6 @@ class WC_Order_Upsale_Frontend {
 		return $data;
 	}
 
-	/**
-	 * Ensures custom upsale data survives WooCommerce session restoration.
-	 * Required for backward compatibility with cart items added before plugin update.
-	 */
 	public function restore_cart_item_data( array $item, array $values ): array {
 		if ( isset( $values['_order_upsale'] ) ) {
 			$item['_order_upsale'] = (bool) $values['_order_upsale'];
@@ -316,7 +391,6 @@ class WC_Order_Upsale_Frontend {
 
 			$discount = $item['_upsale_discount'] ?? [];
 
-			// Fallback: look up discount from current config if session data is missing.
 			if ( empty( $discount ) ) {
 				if ( $config_map === null ) {
 					$config_map = [];
@@ -356,7 +430,6 @@ class WC_Order_Upsale_Frontend {
 			wp_send_json_error( [ 'message' => 'Invalid request' ] );
 		}
 
-		// Security: only allow products configured as active upsales.
 		$upsales       = WC_Order_Upsale_Admin::get_upsales();
 		$upsale_config = null;
 		foreach ( $upsales as $upsale ) {
@@ -370,7 +443,6 @@ class WC_Order_Upsale_Frontend {
 			wp_send_json_error( [ 'message' => 'Product not configured as upsale' ] );
 		}
 
-		// Use the server-side configured quantity — do not trust client value.
 		$quantity = max( 1, absint( $upsale_config['quantity'] ?? 1 ) );
 
 		if ( $toggle === 'add' ) {
@@ -396,7 +468,6 @@ class WC_Order_Upsale_Frontend {
 			}
 		} else {
 			if ( $cart_item_key ) {
-				// Security: verify the cart item key actually belongs to the requested product.
 				$cart_item = WC()->cart->get_cart_item( $cart_item_key );
 				if ( ! $cart_item || (int) $cart_item['product_id'] !== $product_id ) {
 					wp_send_json_error( [ 'message' => 'Invalid cart item' ] );

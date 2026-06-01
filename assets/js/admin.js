@@ -18,6 +18,49 @@ jQuery( function ( $ ) {
 		$( this ).closest( '.upsale-card' ).fadeOut( 200, function () { $( this ).remove(); } );
 	} );
 
+	// ── Duplicate upsale card ─────────────────────────────────
+	$( document ).on( 'click', '.duplicate-upsale', function () {
+		var $source = $( this ).closest( '.upsale-card' );
+		var newIdx  = rowIndex;
+
+		// Sync all WYSIWYG editors in source before cloning.
+		$source.find( '.upsale-wysiwyg-editor' ).each( function () {
+			var fieldName = $( this ).data( 'field' );
+			$source.find( 'input[type="hidden"][name="' + fieldName + '"]' ).val( $( this ).html() );
+		} );
+
+		var $clone = $source.clone( false );
+
+		// Re-index all name/data-field attributes.
+		$clone.attr( 'data-index', newIdx );
+		$clone.find( '[name]' ).each( function () {
+			$( this ).attr( 'name',
+				$( this ).attr( 'name' ).replace( /upsales\[([^\]]+)\]/, 'upsales[' + newIdx + ']' )
+			);
+		} );
+		$clone.find( '[data-field]' ).each( function () {
+			$( this ).attr( 'data-field',
+				$( this ).data( 'field' ).replace( /upsales\[([^\]]+)\]/, 'upsales[' + newIdx + ']' )
+			);
+		} );
+
+		// Strip Select2 artefacts so they can be re-initialised cleanly.
+		$clone.find( '.select2-container' ).remove();
+		$clone.find( '.select2-hidden-accessible' )
+			.removeClass( 'select2-hidden-accessible' )
+			.removeAttr( 'data-select2-id tabindex aria-hidden' );
+
+		// Keep body open so the user sees the duplicate.
+		$clone.find( '.upsale-card-body' ).show();
+		$clone.find( '.upsale-toggle-body' ).html( wcOrderUpsaleAdmin.i18n.collapse + ' &#9650;' );
+
+		$source.after( $clone );
+		initProductSearch( $clone );
+		initWysiwygEditors( $clone );
+
+		rowIndex++;
+	} );
+
 	// ── Toggle card expand / collapse ──────────────────────────
 	$( document ).on( 'click', '.upsale-toggle-body', function () {
 		var $btn  = $( this );
