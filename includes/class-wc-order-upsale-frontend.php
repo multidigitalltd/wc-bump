@@ -7,21 +7,26 @@ class WC_Order_Upsale_Frontend {
 	private static ?int  $upsale_product_adding  = null;
 	private static array $upsale_discount_adding = [];
 
+	/** Cached settings — avoids repeated get_option() calls per request. */
+	private array $settings;
+
 	public function __construct() {
-		$settings = WC_Order_Upsale_Admin::get_settings();
-		$hook     = $settings['position'] === 'after_order_table'
+		$this->settings = WC_Order_Upsale_Admin::get_settings();
+
+		$hook = $this->settings['position'] === 'after_order_table'
 			? 'woocommerce_review_order_after_order_total'
 			: 'woocommerce_review_order_before_payment';
 
-		add_action( $hook, [ $this, 'display_upsales' ] );
-		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
-		add_action( 'wp_head', [ $this, 'output_custom_css' ] );
+		add_action( $hook,                                         [ $this, 'display_upsales' ] );
+		add_action( 'wp_enqueue_scripts',                          [ $this, 'enqueue_scripts' ] );
+		add_action( 'wp_head',                                     [ $this, 'output_custom_css' ] );
 
-		add_action( 'wp_ajax_order_upsale_toggle',        [ $this, 'ajax_toggle' ] );
-		add_action( 'wp_ajax_nopriv_order_upsale_toggle', [ $this, 'ajax_toggle' ] );
+		add_action( 'wp_ajax_order_upsale_toggle',                 [ $this, 'ajax_toggle' ] );
+		add_action( 'wp_ajax_nopriv_order_upsale_toggle',          [ $this, 'ajax_toggle' ] );
 
-		add_filter( 'woocommerce_add_cart_item_data',      [ $this, 'flag_cart_item' ], 10, 2 );
-		add_action( 'woocommerce_before_calculate_totals', [ $this, 'apply_discount' ], 20 );
+		add_filter( 'woocommerce_add_cart_item_data',              [ $this, 'flag_cart_item' ], 10, 2 );
+		add_filter( 'woocommerce_get_cart_item_from_session',      [ $this, 'restore_cart_item_data' ], 10, 2 );
+		add_action( 'woocommerce_before_calculate_totals',         [ $this, 'apply_discount' ], 20 );
 	}
 
 	public function enqueue_scripts(): void {
@@ -47,42 +52,42 @@ class WC_Order_Upsale_Frontend {
 		wp_localize_script( 'wc-order-upsale', 'wcOrderUpsale', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( 'order_upsale_toggle' ),
+			'i18n'    => [
+				'close' => __( 'סגור', 'wc-order-upsale' ),
+			],
 		] );
 	}
 
-	// Outputs global + per-upsale custom CSS on checkout page
 	public function output_custom_css(): void {
 		if ( ! is_checkout() ) {
 			return;
 		}
 
-		$settings   = WC_Order_Upsale_Admin::get_settings();
-		$upsales      = WC_Order_Upsale_Admin::get_upsales();
+		$upsales    = WC_Order_Upsale_Admin::get_upsales();
 		$css_output = '';
 
-		if ( ! empty( $settings['custom_css'] ) ) {
-			$css_output .= "\n" . $settings['custom_css'];
+		if ( ! empty( $this->settings['custom_css'] ) ) {
+			$css_output .= "\n" . $this->settings['custom_css'];
 		}
 
 		foreach ( $upsales as $upsale ) {
 			if ( empty( $upsale['active'] ) || empty( $upsale['product_id'] ) ) {
 				continue;
 			}
-			$pid        = absint( $upsale['product_id'] );
-			$per_css    = $upsale['style']['custom_css'] ?? '';
+			$pid     = absint( $upsale['product_id'] );
+			$per_css = $upsale['style']['custom_css'] ?? '';
 			if ( $per_css ) {
 				$css_output .= "\n/* upsale #{$pid} */\n.order-upsale-item[data-product-id=\"{$pid}\"] { " . $per_css . ' }';
 			}
 		}
 
 		if ( $css_output ) {
-			echo '<style id="wc-order-upsale-custom">' . $css_output . '</style>' . "\n"; // phpcs:ignore
+			echo '<style id="wc-order-upsale-custom">' . $css_output . '</style>' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput
 		}
 	}
 
 	public function display_upsales(): void {
 		$upsales        = WC_Order_Upsale_Admin::get_upsales();
-		$settings     = WC_Order_Upsale_Admin::get_settings();
 		$active_upsales = array_values( array_filter( $upsales, fn( $b ) => ! empty( $b['active'] ) && ! empty( $b['product_id'] ) ) );
 
 		if ( empty( $active_upsales ) ) {
@@ -92,8 +97,8 @@ class WC_Order_Upsale_Frontend {
 		$all_pids = array_column( $active_upsales, 'product_id' );
 		$in_cart  = $this->get_upsales_in_cart( $all_pids );
 
-		$heading = ! empty( $settings['heading'] )
-			? $settings['heading']
+		$heading = ! empty( $this->settings['heading'] )
+			? $this->settings['heading']
 			: __( 'הצעות מיוחדות עבורך', 'wc-order-upsale' );
 
 		$has_visible = false;
@@ -125,39 +130,52 @@ class WC_Order_Upsale_Frontend {
 			$urgency            = $upsale['urgency_text']           ?? '';
 			$cta_lines          = array_filter( (array) ( $upsale['cta_lines'] ?? [] ) );
 			$price_html         = $this->get_price_html( $product, $upsale );
-			$image              = $product->get_image( 'woocommerce_thumbnail' );
 			$button_text        = ! empty( $upsale['button_text'] )        ? $upsale['button_text']        : __( 'כן, הוסיפו לי! →', 'wc-order-upsale' );
 			$button_remove_text = ! empty( $upsale['button_remove_text'] ) ? $upsale['button_remove_text'] : __( '✓ נוסף — לחץ להסרה', 'wc-order-upsale' );
 			$active_btn_text    = $is_added ? $button_remove_text : $button_text;
 
 			$inline_style = $this->build_inline_style( $upsale['style'] ?? [] );
 			$custom_class = ! empty( $upsale['custom_class'] ) ? ' ' . esc_attr( $upsale['custom_class'] ) : '';
+
+			// Full-size image URL for lightbox.
+			$image_id  = $product->get_image_id();
+			$full_url  = $image_id ? wp_get_attachment_image_url( $image_id, 'full' ) : '';
+			$image_tag = $product->get_image( 'woocommerce_thumbnail' );
 			?>
 			<div class="order-upsale-item<?php echo $is_added ? ' is-added' : ''; ?><?php echo $custom_class; ?>"
 				 data-product-id="<?php echo esc_attr( $product_id ); ?>"
 				 <?php echo $inline_style ? 'style="' . esc_attr( $inline_style ) . '"' : ''; ?>>
 
 				<?php if ( $badge_text ) : ?>
-					<span class="order-upsale-badge"><?php echo esc_html( $badge_text ); ?></span>
+					<span class="order-upsale-badge" aria-hidden="true"><?php echo esc_html( $badge_text ); ?></span>
 				<?php endif; ?>
 
 				<div class="order-upsale-body">
-					<?php if ( $image ) : ?>
-						<div class="order-upsale-image"><?php echo $image; // phpcs:ignore ?></div>
+					<?php if ( $image_tag ) : ?>
+						<div class="order-upsale-image">
+							<?php if ( $full_url ) : ?>
+								<a href="<?php echo esc_url( $full_url ); ?>" class="order-upsale-image-link"
+									aria-label="<?php echo esc_attr( sprintf( __( 'הצג תמונה מוגדלת של %s', 'wc-order-upsale' ), $product->get_name() ) ); ?>">
+									<?php echo $image_tag; // phpcs:ignore WordPress.Security.EscapeOutput ?>
+								</a>
+							<?php else : ?>
+								<?php echo $image_tag; // phpcs:ignore WordPress.Security.EscapeOutput ?>
+							<?php endif; ?>
+						</div>
 					<?php endif; ?>
 					<div class="order-upsale-content">
-						<p class="order-upsale-title"><?php echo esc_html( $title ); ?></p>
+						<p class="order-upsale-title"><?php echo wp_kses( $title, WC_Order_Upsale_Admin::allowed_inline_html() ); ?></p>
 						<?php if ( $description ) : ?>
-							<p class="order-upsale-description"><?php echo esc_html( $description ); ?></p>
+							<p class="order-upsale-description"><?php echo wp_kses( $description, WC_Order_Upsale_Admin::allowed_inline_html() ); ?></p>
 						<?php endif; ?>
 						<?php if ( ! empty( $cta_lines ) ) : ?>
-							<ul class="order-upsale-cta-list">
+							<ul class="order-upsale-cta-list" aria-label="<?php esc_attr_e( 'יתרונות המוצר', 'wc-order-upsale' ); ?>">
 								<?php foreach ( $cta_lines as $line ) : ?>
 									<li><span class="order-upsale-cta-check" aria-hidden="true">✓</span><?php echo esc_html( $line ); ?></li>
 								<?php endforeach; ?>
 							</ul>
 						<?php endif; ?>
-						<p class="order-upsale-price"><?php echo $price_html; // phpcs:ignore ?></p>
+						<p class="order-upsale-price"><?php echo $price_html; // phpcs:ignore WordPress.Security.EscapeOutput ?></p>
 					</div>
 				</div>
 
@@ -167,12 +185,13 @@ class WC_Order_Upsale_Frontend {
 					data-cart-item-key="<?php echo esc_attr( $cart_item_key ); ?>"
 					data-quantity="<?php echo esc_attr( $upsale['quantity'] ?? 1 ); ?>"
 					data-add-text="<?php echo esc_attr( $button_text ); ?>"
-					data-remove-text="<?php echo esc_attr( $button_remove_text ); ?>">
+					data-remove-text="<?php echo esc_attr( $button_remove_text ); ?>"
+					aria-pressed="<?php echo $is_added ? 'true' : 'false'; ?>">
 					<?php echo esc_html( $active_btn_text ); ?>
 				</button>
 
 				<?php if ( $urgency ) : ?>
-					<div class="order-upsale-urgency"><?php echo esc_html( $urgency ); ?></div>
+					<div class="order-upsale-urgency" role="note"><?php echo esc_html( $urgency ); ?></div>
 				<?php endif; ?>
 			</div>
 			<?php
@@ -181,22 +200,25 @@ class WC_Order_Upsale_Frontend {
 		$output = ob_get_clean();
 
 		if ( $has_visible ) {
-			echo '<div class="wc-order-upsales-wrapper">';
-			echo '<h3 class="order-upsales-heading">' . esc_html( $heading ) . '</h3>';
-			echo $output; // phpcs:ignore
-			echo '</div>';
+			echo '<section class="wc-order-upsales-wrapper" aria-label="' . esc_attr( $heading ) . '">';
+			echo '<h3 class="order-upsales-heading" aria-hidden="true">' . esc_html( $heading ) . '</h3>';
+			echo $output; // phpcs:ignore WordPress.Security.EscapeOutput
+			echo '</section>';
 		}
 	}
 
 	private function build_inline_style( array $style ): string {
-		$vars = [];
-		$map  = [
+		$map = [
 			'bg_color'          => '--upsale-bg',
 			'border_color'      => '--upsale-border',
 			'button_bg'         => '--upsale-btn-bg',
 			'button_text_color' => '--upsale-btn-color',
 			'badge_color'       => '--upsale-badge-bg',
+			'title_color'       => '--upsale-title-color',
+			'desc_color'        => '--upsale-desc-color',
+			'price_color'       => '--upsale-price-color',
 		];
+		$vars = [];
 		foreach ( $map as $key => $var ) {
 			if ( ! empty( $style[ $key ] ) ) {
 				$vars[] = $var . ':' . esc_attr( $style[ $key ] );
@@ -233,7 +255,7 @@ class WC_Order_Upsale_Frontend {
 			return $product->get_price_html();
 		}
 
-		$original  = (float) $product->get_price();
+		$original  = (float) $product->get_regular_price() ?: (float) $product->get_price();
 		$new_price = $type === 'percent'
 			? $original * ( 1 - $value / 100 )
 			: $original - $value;
@@ -266,21 +288,59 @@ class WC_Order_Upsale_Frontend {
 		return $data;
 	}
 
+	/**
+	 * Ensures custom upsale data survives WooCommerce session restoration.
+	 * Required for backward compatibility with cart items added before plugin update.
+	 */
+	public function restore_cart_item_data( array $item, array $values ): array {
+		if ( isset( $values['_order_upsale'] ) ) {
+			$item['_order_upsale'] = (bool) $values['_order_upsale'];
+		}
+		if ( isset( $values['_upsale_discount'] ) && is_array( $values['_upsale_discount'] ) ) {
+			$item['_upsale_discount'] = $values['_upsale_discount'];
+		}
+		return $item;
+	}
+
 	public function apply_discount( \WC_Cart $cart ): void {
 		if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
 			return;
 		}
 
+		$config_map = null;
+
 		foreach ( $cart->get_cart() as $item ) {
-			if ( empty( $item['_order_upsale'] ) || empty( $item['_upsale_discount'] ) ) {
+			if ( empty( $item['_order_upsale'] ) ) {
 				continue;
 			}
-			$d        = $item['_upsale_discount'];
+
+			$discount = $item['_upsale_discount'] ?? [];
+
+			// Fallback: look up discount from current config if session data is missing.
+			if ( empty( $discount ) ) {
+				if ( $config_map === null ) {
+					$config_map = [];
+					foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
+						$pid  = (int) ( $upsale['product_id'] ?? 0 );
+						$type = $upsale['discount_type']  ?? 'none';
+						$val  = (float) ( $upsale['discount_value'] ?? 0 );
+						if ( $pid && $type !== 'none' && $val > 0 ) {
+							$config_map[ $pid ] = [ 'type' => $type, 'value' => $val ];
+						}
+					}
+				}
+				$discount = $config_map[ (int) $item['product_id'] ] ?? [];
+			}
+
+			if ( empty( $discount ) ) {
+				continue;
+			}
+
 			$product  = $item['data'];
 			$original = (float) $product->get_regular_price() ?: (float) $product->get_price();
-			$new      = $d['type'] === 'percent'
-				? $original * ( 1 - (float) $d['value'] / 100 )
-				: $original - (float) $d['value'];
+			$new      = $discount['type'] === 'percent'
+				? $original * ( 1 - (float) $discount['value'] / 100 )
+				: $original - (float) $discount['value'];
 			$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
 		}
 	}
@@ -288,25 +348,37 @@ class WC_Order_Upsale_Frontend {
 	public function ajax_toggle(): void {
 		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
 
-		$product_id    = absint( $_POST['product_id']      ?? 0 );
-		$toggle        = sanitize_key( $_POST['toggle']    ?? '' );
+		$product_id    = absint( $_POST['product_id']          ?? 0 );
+		$toggle        = sanitize_key( $_POST['toggle']        ?? '' );
 		$cart_item_key = sanitize_key( $_POST['cart_item_key'] ?? '' );
-		$quantity      = max( 1, absint( $_POST['quantity'] ?? 1 ) );
 
 		if ( ! $product_id || ! in_array( $toggle, [ 'add', 'remove' ], true ) ) {
 			wp_send_json_error( [ 'message' => 'Invalid request' ] );
 		}
 
+		// Security: only allow products configured as active upsales.
+		$upsales       = WC_Order_Upsale_Admin::get_upsales();
+		$upsale_config = null;
+		foreach ( $upsales as $upsale ) {
+			if ( (int) ( $upsale['product_id'] ?? 0 ) === $product_id && ! empty( $upsale['active'] ) ) {
+				$upsale_config = $upsale;
+				break;
+			}
+		}
+
+		if ( $upsale_config === null ) {
+			wp_send_json_error( [ 'message' => 'Product not configured as upsale' ] );
+		}
+
+		// Use the server-side configured quantity — do not trust client value.
+		$quantity = max( 1, absint( $upsale_config['quantity'] ?? 1 ) );
+
 		if ( $toggle === 'add' ) {
 			$discount = [];
-			foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
-				if ( (int) $upsale['product_id'] === $product_id
-					&& ( $upsale['discount_type'] ?? 'none' ) !== 'none'
-					&& ! empty( $upsale['discount_value'] )
-				) {
-					$discount = [ 'type' => $upsale['discount_type'], 'value' => (float) $upsale['discount_value'] ];
-					break;
-				}
+			$type     = $upsale_config['discount_type']  ?? 'none';
+			$val      = (float) ( $upsale_config['discount_value'] ?? 0 );
+			if ( $type !== 'none' && $val > 0 ) {
+				$discount = [ 'type' => $type, 'value' => $val ];
 			}
 
 			self::$upsale_product_adding  = $product_id;
@@ -324,6 +396,11 @@ class WC_Order_Upsale_Frontend {
 			}
 		} else {
 			if ( $cart_item_key ) {
+				// Security: verify the cart item key actually belongs to the requested product.
+				$cart_item = WC()->cart->get_cart_item( $cart_item_key );
+				if ( ! $cart_item || (int) $cart_item['product_id'] !== $product_id ) {
+					wp_send_json_error( [ 'message' => 'Invalid cart item' ] );
+				}
 				WC()->cart->remove_cart_item( $cart_item_key );
 				WC()->cart->calculate_totals();
 			}

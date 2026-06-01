@@ -8,6 +8,7 @@ jQuery( function ( $ ) {
 		var $card = $( html );
 		$( '#order-upsales-list' ).append( $card );
 		initProductSearch( $card );
+		initWysiwygEditors( $card );
 		$card.find( '.upsale-card-body' ).slideDown( 200 );
 		rowIndex++;
 	} );
@@ -67,8 +68,8 @@ jQuery( function ( $ ) {
 
 	// ── Condition type toggle ──────────────────────────────────
 	$( document ).on( 'change', '.upsale-condition-type', function () {
-		var val  = $( this ).val();
-		var $td  = $( this ).closest( 'td' );
+		var val = $( this ).val();
+		var $td = $( this ).closest( 'td' );
 		$td.find( '.upsale-condition-value-wrap' ).toggle( val !== 'always' );
 		$td.find( '.upsale-condition-product-wrap' ).toggle( val === 'if_product' );
 		$td.find( '.upsale-condition-category-wrap' ).toggle( val === 'if_category' );
@@ -101,7 +102,6 @@ jQuery( function ( $ ) {
 			             : null;
 			if ( ! selectFn ) return;
 
-			// Destroy any prior init (wc-enhanced-select may have run with wrong nonce)
 			if ( $el.hasClass( 'select2-hidden-accessible' ) ) {
 				try { $el[ selectFn ]( 'destroy' ); } catch ( e ) {}
 			}
@@ -132,9 +132,71 @@ jQuery( function ( $ ) {
 		} );
 	}
 
-	// Init on page load
+	// ── WYSIWYG Mini Editor ────────────────────────────────────
+	function applyFontSize( size ) {
+		var sel = window.getSelection();
+		if ( ! sel || ! sel.rangeCount ) return;
+		var range = sel.getRangeAt( 0 );
+		if ( range.collapsed ) return;
+		var span = document.createElement( 'span' );
+		span.style.fontSize = size;
+		try {
+			range.surroundContents( span );
+		} catch ( e ) {
+			span.appendChild( range.extractContents() );
+			range.insertNode( span );
+			range.selectNode( span );
+			sel.removeAllRanges();
+			sel.addRange( range );
+		}
+	}
+
+	function initWysiwygEditors( $card ) {
+		$card.find( '.upsale-wysiwyg-wrap' ).each( function () {
+			var $wrap    = $( this );
+			var $editor  = $wrap.find( '.upsale-wysiwyg-editor' );
+			var $hidden  = $wrap.find( 'input[type="hidden"]' );
+			var $toolbar = $wrap.find( '.upsale-wysiwyg-toolbar' );
+
+			// Seed hidden input from current editor HTML (normalises on page load).
+			$hidden.val( $editor.html() );
+
+			// Sync on every keystroke / paste.
+			$editor.on( 'input', function () {
+				$hidden.val( $editor.html() );
+			} );
+
+			// Formatting buttons — mousedown keeps focus on editor.
+			$toolbar.find( '.upsale-wysiwyg-btn' ).on( 'mousedown', function ( e ) {
+				e.preventDefault();
+				$editor[ 0 ].focus();
+				document.execCommand( $( this ).data( 'cmd' ), false, null );
+				$hidden.val( $editor.html() );
+			} );
+
+			// Font size via custom span injection.
+			$toolbar.find( '.upsale-wysiwyg-fontsize' ).on( 'change', function () {
+				var size = this.value;
+				if ( ! size ) return;
+				$editor[ 0 ].focus();
+				applyFontSize( size );
+				$hidden.val( $editor.html() );
+				this.value = '';
+			} );
+
+			// Text colour.
+			$toolbar.find( '.upsale-wysiwyg-color' ).on( 'input', function () {
+				$editor[ 0 ].focus();
+				document.execCommand( 'foreColor', false, this.value );
+				$hidden.val( $editor.html() );
+			} );
+		} );
+	}
+
+	// Init on page load for all existing cards.
 	$( '.upsale-card' ).each( function () {
 		initProductSearch( $( this ) );
+		initWysiwygEditors( $( this ) );
 	} );
 
 } );

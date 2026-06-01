@@ -8,9 +8,9 @@ class WC_Order_Upsale_Admin {
 	const OPTION_SETTINGS = 'wc_order_upsale_settings';
 
 	public function __construct() {
-		add_action( 'admin_menu', [ $this, 'add_menu' ] );
-		add_action( 'admin_post_save_wc_order_upsales', [ $this, 'save_settings' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
+		add_action( 'admin_menu',                          [ $this, 'add_menu' ] );
+		add_action( 'admin_post_save_wc_order_upsales',    [ $this, 'save_settings' ] );
+		add_action( 'admin_enqueue_scripts',               [ $this, 'enqueue_scripts' ] );
 	}
 
 	public function add_menu(): void {
@@ -65,17 +65,15 @@ class WC_Order_Upsale_Admin {
 			wp_die( 'Unauthorized' );
 		}
 
-		// Global settings
 		update_option( self::OPTION_SETTINGS, [
 			'heading'    => sanitize_text_field( $_POST['setting_heading']  ?? '' ),
 			'position'   => in_array( $_POST['setting_position'] ?? '', [ 'before_payment', 'after_order_table' ], true )
 				? $_POST['setting_position']
 				: 'before_payment',
-			'custom_css' => wp_strip_all_tags( $_POST['setting_custom_css'] ?? '' ),
+			'custom_css' => self::sanitize_css( $_POST['setting_custom_css'] ?? '' ),
 		] );
 
-		// Upsales
-		$raw   = (array) ( $_POST['upsales'] ?? [] );
+		$raw     = (array) ( $_POST['upsales'] ?? [] );
 		$upsales = [];
 
 		foreach ( $raw as $data ) {
@@ -100,26 +98,29 @@ class WC_Order_Upsale_Admin {
 				'product_id'         => $product_id,
 				'active'             => (bool) ( $data['active'] ?? false ),
 				'custom_class'       => $custom_class,
-				'title'              => sanitize_text_field( $data['title']              ?? '' ),
-				'description'        => wp_kses_post( $data['description']               ?? '' ),
+				'title'              => wp_kses( $data['title'] ?? '', self::allowed_inline_html() ),
+				'description'        => wp_kses( $data['description'] ?? '', self::allowed_inline_html() ),
 				'badge_text'         => sanitize_text_field( $data['badge_text']         ?? '' ),
-				'urgency_text'       => sanitize_text_field( $data['urgency_text']       ?? '' ),
+				'urgency_text'       => sanitize_text_field( $data['urgency_text']        ?? '' ),
 				'cta_lines'          => $cta_lines,
-				'button_text'        => sanitize_text_field( $data['button_text']        ?? '' ),
-				'button_remove_text' => sanitize_text_field( $data['button_remove_text'] ?? '' ),
+				'button_text'        => sanitize_text_field( $data['button_text']         ?? '' ),
+				'button_remove_text' => sanitize_text_field( $data['button_remove_text']  ?? '' ),
 				'discount_type'      => $discount_type,
 				'discount_value'     => max( 0.0, (float) ( $data['discount_value'] ?? 0 ) ),
-				'quantity'           => max( 1, absint( $data['quantity']           ?? 1 ) ),
+				'quantity'           => max( 1, absint( $data['quantity'] ?? 1 ) ),
 				'condition_type'     => $condition_type,
-				'condition_value'    => absint( $data['condition_value']            ?? 0 ),
-				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart']           ?? true ),
+				'condition_value'    => absint( $data['condition_value'] ?? 0 ),
+				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart'] ?? true ),
 				'style'              => [
 					'bg_color'          => sanitize_hex_color( $data['style']['bg_color']          ?? '' ) ?? '',
 					'border_color'      => sanitize_hex_color( $data['style']['border_color']      ?? '' ) ?? '',
 					'button_bg'         => sanitize_hex_color( $data['style']['button_bg']         ?? '' ) ?? '',
 					'button_text_color' => sanitize_hex_color( $data['style']['button_text_color'] ?? '' ) ?? '',
 					'badge_color'       => sanitize_hex_color( $data['style']['badge_color']       ?? '' ) ?? '',
-					'custom_css'        => wp_strip_all_tags( $data['style']['custom_css']         ?? '' ),
+					'title_color'       => sanitize_hex_color( $data['style']['title_color']       ?? '' ) ?? '',
+					'desc_color'        => sanitize_hex_color( $data['style']['desc_color']        ?? '' ) ?? '',
+					'price_color'       => sanitize_hex_color( $data['style']['price_color']       ?? '' ) ?? '',
+					'custom_css'        => self::sanitize_css( $data['style']['custom_css']        ?? '' ),
 				],
 			];
 		}
@@ -142,10 +143,36 @@ class WC_Order_Upsale_Admin {
 		] );
 	}
 
+	/**
+	 * Allowed inline HTML tags for WYSIWYG title/description fields.
+	 */
+	public static function allowed_inline_html(): array {
+		return [
+			'b'      => [],
+			'strong' => [],
+			'i'      => [],
+			'em'     => [],
+			'u'      => [],
+			's'      => [],
+			'br'     => [],
+			'span'   => [ 'style' => [] ],
+			'font'   => [ 'color' => [], 'size' => [] ],
+		];
+	}
+
+	/**
+	 * Strip HTML and remove dangerous CSS constructs (expression, javascript:).
+	 */
+	private static function sanitize_css( string $css ): string {
+		$css = wp_strip_all_tags( $css );
+		$css = preg_replace( '/expression\s*\(/i', '', $css );
+		$css = preg_replace( '/javascript\s*:/i', '', $css );
+		return $css;
+	}
+
 	public function render_page(): void {
 		$upsales    = self::get_upsales();
-		$settings = self::get_settings();
-
+		$settings   = self::get_settings();
 		$categories = get_terms( [
 			'taxonomy'   => 'product_cat',
 			'hide_empty' => false,
@@ -277,6 +304,9 @@ class WC_Order_Upsale_Admin {
 			'button_bg'         => '',
 			'button_text_color' => '',
 			'badge_color'       => '',
+			'title_color'       => '',
+			'desc_color'        => '',
+			'price_color'       => '',
 			'custom_css'        => '',
 		] );
 
@@ -331,22 +361,29 @@ class WC_Order_Upsale_Admin {
 						</td>
 					</tr>
 
-					<!-- Title -->
+					<!-- Title — WYSIWYG -->
 					<tr>
 						<th><?php esc_html_e( 'כותרת מותאמת', 'wc-order-upsale' ); ?></th>
 						<td>
-							<input type="text" name="upsales[<?php echo $n; ?>][title]"
-								value="<?php echo esc_attr( $title ); ?>"
-								placeholder="<?php esc_attr_e( 'ברירת מחדל: שם המוצר', 'wc-order-upsale' ); ?>"
-								class="regular-text">
+							<?php $this->render_wysiwyg_field(
+								"upsales[{$n}][title]",
+								$title,
+								__( 'ברירת מחדל: שם המוצר', 'wc-order-upsale' ),
+								false
+							); ?>
 						</td>
 					</tr>
 
-					<!-- Description -->
+					<!-- Description — WYSIWYG -->
 					<tr>
 						<th><?php esc_html_e( 'תיאור קצר', 'wc-order-upsale' ); ?></th>
 						<td>
-							<textarea name="upsales[<?php echo $n; ?>][description]" rows="2" class="large-text"><?php echo esc_textarea( $description ); ?></textarea>
+							<?php $this->render_wysiwyg_field(
+								"upsales[{$n}][description]",
+								$description,
+								__( 'תיאור קצר של המוצר', 'wc-order-upsale' ),
+								true
+							); ?>
 						</td>
 					</tr>
 
@@ -523,6 +560,9 @@ class WC_Order_Upsale_Admin {
 									'button_bg'         => __( 'רקע כפתור', 'wc-order-upsale' ),
 									'button_text_color' => __( 'טקסט כפתור', 'wc-order-upsale' ),
 									'badge_color'       => __( 'צבע Badge', 'wc-order-upsale' ),
+									'title_color'       => __( 'צבע כותרת', 'wc-order-upsale' ),
+									'desc_color'        => __( 'צבע תיאור', 'wc-order-upsale' ),
+									'price_color'       => __( 'צבע מחיר', 'wc-order-upsale' ),
 								];
 								foreach ( $color_fields as $field => $label ) :
 									$has_val = ! empty( $style[ $field ] );
@@ -551,7 +591,7 @@ class WC_Order_Upsale_Admin {
 						</td>
 					</tr>
 
-					<!-- Custom CSS per upsale -->
+					<!-- CSS Class -->
 					<tr>
 						<th><?php esc_html_e( 'CSS Class לכרטיס', 'wc-order-upsale' ); ?></th>
 						<td>
@@ -567,6 +607,7 @@ class WC_Order_Upsale_Admin {
 						</td>
 					</tr>
 
+					<!-- Custom CSS per upsale -->
 					<tr>
 						<th><?php esc_html_e( 'CSS מותאם לכרטיס זה', 'wc-order-upsale' ); ?></th>
 						<td>
@@ -582,6 +623,61 @@ class WC_Order_Upsale_Admin {
 				</table>
 			</div><!-- .upsale-card-body -->
 		</div><!-- .upsale-card -->
+		<?php
+	}
+
+	/**
+	 * Renders a mini WYSIWYG editor (toolbar + contenteditable + hidden input).
+	 */
+	private function render_wysiwyg_field( string $field_name, string $value, string $placeholder, bool $multiline ): void {
+		$safe_value = wp_kses( $value, self::allowed_inline_html() );
+		?>
+		<div class="upsale-wysiwyg-wrap">
+			<div class="upsale-wysiwyg-toolbar">
+				<button type="button" class="upsale-wysiwyg-btn" data-cmd="bold"
+					title="<?php esc_attr_e( 'מודגש', 'wc-order-upsale' ); ?>"
+					aria-label="<?php esc_attr_e( 'מודגש', 'wc-order-upsale' ); ?>"><b aria-hidden="true">B</b></button>
+				<button type="button" class="upsale-wysiwyg-btn" data-cmd="italic"
+					title="<?php esc_attr_e( 'נטוי', 'wc-order-upsale' ); ?>"
+					aria-label="<?php esc_attr_e( 'נטוי', 'wc-order-upsale' ); ?>"><i aria-hidden="true">I</i></button>
+				<button type="button" class="upsale-wysiwyg-btn" data-cmd="underline"
+					title="<?php esc_attr_e( 'קו תחתון', 'wc-order-upsale' ); ?>"
+					aria-label="<?php esc_attr_e( 'קו תחתון', 'wc-order-upsale' ); ?>"><u aria-hidden="true">U</u></button>
+				<span class="upsale-toolbar-sep" aria-hidden="true"></span>
+				<select class="upsale-wysiwyg-fontsize"
+					title="<?php esc_attr_e( 'גודל גופן', 'wc-order-upsale' ); ?>"
+					aria-label="<?php esc_attr_e( 'גודל גופן', 'wc-order-upsale' ); ?>">
+					<option value="">px</option>
+					<option value="11px">11</option>
+					<option value="12px">12</option>
+					<option value="13px">13</option>
+					<option value="14px">14</option>
+					<option value="16px">16</option>
+					<option value="18px">18</option>
+					<option value="20px">20</option>
+					<option value="24px">24</option>
+					<option value="28px">28</option>
+					<option value="32px">32</option>
+				</select>
+				<span class="upsale-toolbar-sep" aria-hidden="true"></span>
+				<label class="upsale-wysiwyg-color-label"
+					title="<?php esc_attr_e( 'צבע טקסט', 'wc-order-upsale' ); ?>">
+					<span aria-hidden="true">A</span>
+					<input type="color" class="upsale-wysiwyg-color" value="#000000"
+						aria-label="<?php esc_attr_e( 'צבע טקסט', 'wc-order-upsale' ); ?>">
+				</label>
+			</div>
+			<div class="upsale-wysiwyg-editor<?php echo $multiline ? ' is-multiline' : ''; ?>"
+				contenteditable="true"
+				role="textbox"
+				aria-multiline="<?php echo $multiline ? 'true' : 'false'; ?>"
+				aria-label="<?php echo esc_attr( $placeholder ); ?>"
+				data-field="<?php echo esc_attr( $field_name ); ?>"
+				data-placeholder="<?php echo esc_attr( $placeholder ); ?>"><?php echo $safe_value; // phpcs:ignore WordPress.Security.EscapeOutput ?></div>
+			<input type="hidden"
+				name="<?php echo esc_attr( $field_name ); ?>"
+				value="<?php echo esc_attr( $safe_value ); ?>">
+		</div>
 		<?php
 	}
 }
