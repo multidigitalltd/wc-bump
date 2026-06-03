@@ -20,9 +20,11 @@ class WC_Order_Upsale_Analytics {
 		// (classic checkout and the Store API / Block checkout share this hook).
 		add_action( 'woocommerce_checkout_create_order_line_item', [ $this, 'tag_order_line_item' ], 10, 4 );
 
-		// Record conversions + revenue once, when an order is placed.
-		add_action( 'woocommerce_checkout_order_processed',           [ $this, 'record_order' ], 20, 1 );
-		add_action( 'woocommerce_store_api_checkout_order_processed',  [ $this, 'record_order' ], 20, 1 );
+		// Record conversions + revenue only once the order reaches a paid state,
+		// so failed or abandoned payments are never counted as completed purchases.
+		// The order meta guard makes the processing -> completed transition idempotent.
+		add_action( 'woocommerce_order_status_processing', [ $this, 'record_order' ], 20, 1 );
+		add_action( 'woocommerce_order_status_completed',  [ $this, 'record_order' ], 20, 1 );
 
 		// Stats admin page.
 		add_action( 'admin_menu',                                  [ $this, 'add_menu' ], 20 );
@@ -178,8 +180,9 @@ class WC_Order_Upsale_Analytics {
 	}
 
 	/**
-	 * Record conversions + revenue for every upsale line in a freshly placed
-	 * order. Guarded by an order meta flag so it runs at most once per order.
+	 * Record conversions + revenue for every upsale line in an order that has
+	 * reached a paid state. Guarded by an order meta flag so it runs at most
+	 * once per order (e.g. across the processing -> completed transition).
 	 *
 	 * @param int|WC_Order $order
 	 */
