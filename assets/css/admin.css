@@ -70,6 +70,53 @@
 	flex-shrink: 0;
 }
 
+/* ── Per-card quick stats ─────────────────────── */
+.upsale-card-stats {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-shrink: 0;
+	font-size: 0.78em;
+	color: #50575e;
+	white-space: nowrap;
+}
+
+.upsale-card-stats .upsale-stat {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+
+.upsale-card-stats .upsale-stat .amount,
+.upsale-card-stats .upsale-stat bdi {
+	font-weight: 600;
+}
+
+@media screen and (max-width: 1100px) {
+	.upsale-card-stats { display: none; }
+}
+
+/* ── Stats page table ─────────────────────────── */
+.wc-upsale-stats-table th,
+.wc-upsale-stats-table td {
+	text-align: center;
+}
+
+.wc-upsale-stats-table th:first-child,
+.wc-upsale-stats-table td:first-child {
+	text-align: start;
+}
+
+.wc-upsale-stats-table tfoot th {
+	font-weight: 700;
+	border-top: 2px solid #c3c4c7;
+}
+
+.wc-upsale-stats-table td .description {
+	color: #888;
+	margin-inline-start: 4px;
+}
+
 /* ── Card form table ──────────────────────────── */
 .upsale-form-table {
 	width: 100%;

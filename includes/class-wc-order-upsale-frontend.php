@@ -194,7 +194,8 @@ class WC_Order_Upsale_Frontend {
 			? $this->settings['heading']
 			: __( 'הצעות מיוחדות עבורך', 'wc-order-upsale' );
 
-		$has_visible = false;
+		$has_visible  = false;
+		$rendered_ids = [];
 		ob_start();
 
 		foreach ( $active_upsales as $upsale ) {
@@ -215,7 +216,8 @@ class WC_Order_Upsale_Frontend {
 				continue;
 			}
 
-			$has_visible = true;
+			$has_visible    = true;
+			$rendered_ids[] = $product_id;
 
 			$title              = ! empty( $upsale['title'] )       ? $upsale['title']       : $product->get_name();
 			$description        = ! empty( $upsale['description'] ) ? $upsale['description'] : wp_strip_all_tags( $product->get_short_description() );
@@ -293,6 +295,7 @@ class WC_Order_Upsale_Frontend {
 
 		if ( $has_visible ) {
 			$this->upsales_rendered = true;
+			WC_Order_Upsale_Analytics::record_impressions( $rendered_ids );
 			echo '<section class="wc-order-upsales-wrapper" aria-label="' . esc_attr( $heading ) . '">';
 			echo '<h3 class="order-upsales-heading" aria-hidden="true">' . esc_html( $heading ) . '</h3>';
 			echo $output; // phpcs:ignore WordPress.Security.EscapeOutput
@@ -516,6 +519,7 @@ class WC_Order_Upsale_Frontend {
 
 			if ( $new_key ) {
 				WC()->cart->calculate_totals();
+				WC_Order_Upsale_Analytics::record_add_to_cart( $product_id );
 				wp_send_json_success( [ 'cart_item_key' => $new_key ] );
 			} else {
 				self::$upsale_product_adding  = null;
