@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WC Order Upsale
  * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט
- * Version: 1.2.3
+ * Version: 1.3.0
  * Author: Multi-Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -15,9 +15,15 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.2.3' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.3.0' );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_URL', plugin_dir_url( __FILE__ ) );
+
+// Create the analytics stats table on activation.
+register_activation_hook( __FILE__, function () {
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-analytics.php';
+	WC_Order_Upsale_Analytics::create_table();
+} );
 
 // HPOS compatibility declaration
 add_action( 'before_woocommerce_init', function () {
@@ -33,7 +39,9 @@ add_action( 'plugins_loaded', function () {
 
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-admin.php';
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-frontend.php';
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-analytics.php';
 
 	new WC_Order_Upsale_Admin();
 	new WC_Order_Upsale_Frontend();
+	new WC_Order_Upsale_Analytics();
 } );

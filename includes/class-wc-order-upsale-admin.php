@@ -173,6 +173,7 @@ class WC_Order_Upsale_Admin {
 	public function render_page(): void {
 		$upsales    = self::get_upsales();
 		$settings   = self::get_settings();
+		$stats      = WC_Order_Upsale_Analytics::get_all_stats();
 		$categories = get_terms( [
 			'taxonomy'   => 'product_cat',
 			'hide_empty' => false,
@@ -256,7 +257,7 @@ class WC_Order_Upsale_Admin {
 
 				<div id="order-upsales-list" class="upsale-cards-list">
 					<?php foreach ( $upsales as $i => $upsale ) : ?>
-						<?php $this->render_upsale_card( $i, $upsale, $categories ); ?>
+						<?php $this->render_upsale_card( $i, $upsale, $categories, $stats[ (int) ( $upsale['product_id'] ?? 0 ) ] ?? [] ); ?>
 					<?php endforeach; ?>
 				</div>
 
@@ -280,7 +281,7 @@ class WC_Order_Upsale_Admin {
 		<?php
 	}
 
-	public function render_upsale_card( int|string $i, array $upsale, array $categories = [] ): void {
+	public function render_upsale_card( int|string $i, array $upsale, array $categories = [], array $stats = [] ): void {
 		$n = esc_attr( $i );
 
 		$product_id         = $upsale['product_id']         ?? 0;
@@ -329,6 +330,21 @@ class WC_Order_Upsale_Admin {
 						<span class="upsale-badge-preview"><?php echo esc_html( $badge_text ); ?></span>
 					<?php endif; ?>
 				</span>
+				<?php if ( $product_id ) : ?>
+					<?php
+					$s_impr = (int) ( $stats['impressions'] ?? 0 );
+					$s_atc  = (int) ( $stats['add_to_cart'] ?? 0 );
+					$s_conv = (int) ( $stats['conversions'] ?? 0 );
+					$s_rev  = (float) ( $stats['revenue']    ?? 0 );
+					?>
+					<span class="upsale-card-stats" aria-label="<?php esc_attr_e( 'סטטיסטיקות', 'wc-order-upsale' ); ?>">
+						<span class="upsale-stat" title="<?php esc_attr_e( 'חשיפות', 'wc-order-upsale' ); ?>">&#128065; <?php echo esc_html( number_format_i18n( $s_impr ) ); ?></span>
+						<span class="upsale-stat" title="<?php esc_attr_e( 'הוספות לסל', 'wc-order-upsale' ); ?>">&#128722; <?php echo esc_html( number_format_i18n( $s_atc ) ); ?></span>
+						<span class="upsale-stat" title="<?php esc_attr_e( 'CTR', 'wc-order-upsale' ); ?>">CTR <?php echo esc_html( WC_Order_Upsale_Analytics::format_rate( $s_atc, $s_impr ) ); ?></span>
+						<span class="upsale-stat" title="<?php esc_attr_e( 'רכישות', 'wc-order-upsale' ); ?>">&#10004; <?php echo esc_html( number_format_i18n( $s_conv ) ); ?></span>
+						<span class="upsale-stat" title="<?php esc_attr_e( 'הכנסות', 'wc-order-upsale' ); ?>"><?php echo wp_kses_post( wc_price( $s_rev ) ); ?></span>
+					</span>
+				<?php endif; ?>
 				<div class="upsale-card-actions">
 					<button type="button" class="button button-small upsale-toggle-body">
 						<?php esc_html_e( 'הגדרות', 'wc-order-upsale' ); ?> &#9660;
