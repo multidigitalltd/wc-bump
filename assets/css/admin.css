@@ -96,6 +96,38 @@
 	.upsale-card-stats { display: none; }
 }
 
+/* ── Stats page date filter ───────────────────── */
+.wc-upsale-stats-filter {
+	display: flex;
+	align-items: flex-end;
+	gap: 12px;
+	flex-wrap: wrap;
+	margin: 12px 0;
+	padding: 12px 14px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}
+
+.wc-upsale-stats-filter label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 0.85em;
+	font-weight: 600;
+	color: #50575e;
+}
+
+.wc-upsale-stats-filter .wc-upsale-presets {
+	display: inline-flex;
+	gap: 6px;
+	margin-inline-start: auto;
+}
+
+.wc-upsale-active-range {
+	font-style: italic;
+}
+
 /* ── Stats page table ─────────────────────────── */
 .wc-upsale-stats-table th,
 .wc-upsale-stats-table td {

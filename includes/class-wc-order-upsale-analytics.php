@@ -6,14 +6,22 @@ defined( 'ABSPATH' ) || exit;
  * Tracks and reports performance statistics for each Order Upsale:
  * impressions, add-to-cart clicks, completed conversions and revenue.
  *
- * Counters are stored in a dedicated table and incremented atomically
- * (INSERT … ON DUPLICATE KEY UPDATE) so high-volume impression counts
- * are never lost to race conditions.
+ * Counters are bucketed by day (one row per product per day) and incremented
+ * atomically (INSERT … ON DUPLICATE KEY UPDATE) so high-volume impression
+ * counts are never lost to race conditions, while still allowing the admin
+ * report to be filtered by date range.
  */
 class WC_Order_Upsale_Analytics {
 
 	const DB_VERSION_OPTION = 'wc_order_upsale_stats_db_version';
-	const DB_VERSION        = '1.0.0';
+	const DB_VERSION        = '1.1.0';
+
+	/**
+	 * Sentinel date holding the lifetime totals migrated from the v1.0.0
+	 * (dateless) table. It sits far in the past so realistic date-range
+	 * filters never include it, yet it is still counted in "all time".
+	 */
+	const LEGACY_DATE = '1970-01-01';
 
 	public function __construct() {
 		// Tag upsale line items as they are written to the order
@@ -39,6 +47,12 @@ class WC_Order_Upsale_Analytics {
 
 	public static function table_name(): string {
 		global $wpdb;
+		return $wpdb->prefix . 'wc_order_upsale_stats_daily';
+	}
+
+	/** The dateless v1.0.0 table — only referenced during migration. */
+	private static function legacy_table_name(): string {
+		global $wpdb;
 		return $wpdb->prefix . 'wc_order_upsale_stats';
 	}
 
@@ -51,15 +65,51 @@ class WC_Order_Upsale_Analytics {
 
 		$sql = "CREATE TABLE {$table} (
 			product_id BIGINT UNSIGNED NOT NULL,
+			stat_date DATE NOT NULL,
 			impressions BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			add_to_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			conversions BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			revenue DECIMAL(18,4) NOT NULL DEFAULT 0,
-			PRIMARY KEY  (product_id)
+			PRIMARY KEY  (product_id, stat_date),
+			KEY stat_date (stat_date)
 		) {$charset};";
 
 		dbDelta( $sql );
+		self::migrate_legacy_totals();
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+	}
+
+	/**
+	 * One-time migration of v1.0.0 lifetime totals into the daily table under
+	 * the sentinel date, preserving historical numbers without misattributing
+	 * them to a real calendar day. The old table is dropped afterwards.
+	 */
+	private static function migrate_legacy_totals(): void {
+		global $wpdb;
+		$legacy = self::legacy_table_name();
+		$daily  = self::table_name();
+
+		// Nothing to migrate on a fresh install.
+		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $legacy ) ) );
+		if ( $found !== $legacy ) {
+			return;
+		}
+
+		$copied = $wpdb->query( $wpdb->prepare(
+			"INSERT INTO {$daily} (product_id, stat_date, impressions, add_to_cart, conversions, revenue)
+			 SELECT product_id, %s, impressions, add_to_cart, conversions, revenue FROM {$legacy}
+			 ON DUPLICATE KEY UPDATE
+				impressions = impressions + VALUES(impressions),
+				add_to_cart = add_to_cart + VALUES(add_to_cart),
+				conversions = conversions + VALUES(conversions),
+				revenue     = revenue + VALUES(revenue)",
+			self::LEGACY_DATE
+		) );
+
+		// Only drop the old table once its data is safely copied across.
+		if ( false !== $copied ) {
+			$wpdb->query( "DROP TABLE IF EXISTS {$legacy}" ); // phpcs:ignore WordPress.DB.PreparedSQL
+		}
 	}
 
 	public function maybe_create_table(): void {
@@ -82,9 +132,10 @@ class WC_Order_Upsale_Analytics {
 
 		// $column is whitelisted above, safe to interpolate.
 		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO {$table} (product_id, {$column}) VALUES (%d, %d)
+			"INSERT INTO {$table} (product_id, stat_date, {$column}) VALUES (%d, %s, %d)
 			 ON DUPLICATE KEY UPDATE {$column} = {$column} + %d",
 			$product_id,
+			current_time( 'Y-m-d' ),
 			$count,
 			$count
 		) );
@@ -114,9 +165,10 @@ class WC_Order_Upsale_Analytics {
 		$table = self::table_name();
 
 		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO {$table} (product_id, conversions, revenue) VALUES (%d, %d, %f)
+			"INSERT INTO {$table} (product_id, stat_date, conversions, revenue) VALUES (%d, %s, %d, %f)
 			 ON DUPLICATE KEY UPDATE conversions = conversions + %d, revenue = revenue + %f",
 			$product_id,
+			current_time( 'Y-m-d' ),
 			$count,
 			$revenue,
 			$count,
@@ -127,15 +179,41 @@ class WC_Order_Upsale_Analytics {
 	/* ─────────────────────── Reporting API ───────────────────── */
 
 	/**
+	 * Aggregated per-product stats, optionally limited to a date range.
+	 * Dates are inclusive "Y-m-d" strings in site time; null means unbounded
+	 * (so calling with no arguments returns lifetime totals).
+	 *
 	 * @return array<int,array{impressions:int,add_to_cart:int,conversions:int,revenue:float}>
 	 */
-	public static function get_all_stats(): array {
+	public static function get_all_stats( ?string $from = null, ?string $to = null ): array {
 		global $wpdb;
 		$table = self::table_name();
 
-		$rows  = $wpdb->get_results( "SELECT * FROM {$table}", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL
-		$stats = [];
+		$where  = '';
+		$params = [];
+		if ( $from ) {
+			$where   .= ' AND stat_date >= %s';
+			$params[] = $from;
+		}
+		if ( $to ) {
+			$where   .= ' AND stat_date <= %s';
+			$params[] = $to;
+		}
 
+		$sql = "SELECT product_id,
+					SUM(impressions) AS impressions,
+					SUM(add_to_cart) AS add_to_cart,
+					SUM(conversions) AS conversions,
+					SUM(revenue)     AS revenue
+				FROM {$table}
+				WHERE 1=1{$where}
+				GROUP BY product_id";
+
+		$rows = $params
+			? $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A ) // phpcs:ignore WordPress.DB.PreparedSQL
+			: $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL
+
+		$stats = [];
 		foreach ( (array) $rows as $row ) {
 			$stats[ (int) $row['product_id'] ] = [
 				'impressions' => (int) $row['impressions'],
@@ -146,6 +224,17 @@ class WC_Order_Upsale_Analytics {
 		}
 
 		return $stats;
+	}
+
+	/**
+	 * Validate a user-supplied date, returning a canonical "Y-m-d" string or
+	 * null when the value is missing or not a real calendar date.
+	 */
+	public static function sanitize_date( $value ): ?string {
+		if ( ! is_string( $value ) || ! preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m ) ) {
+			return null;
+		}
+		return checkdate( (int) $m[2], (int) $m[3], (int) $m[1] ) ? $value : null;
 	}
 
 	public static function blank_stats(): array {
@@ -247,7 +336,11 @@ class WC_Order_Upsale_Analytics {
 	}
 
 	public function render_stats_page(): void {
-		$all_stats = self::get_all_stats();
+		// Read-only GET filter; values are strictly validated below.
+		$from = self::sanitize_date( $_GET['from'] ?? null ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput
+		$to   = self::sanitize_date( $_GET['to'] ?? null );   // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput
+
+		$all_stats = self::get_all_stats( $from, $to );
 		$upsales   = WC_Order_Upsale_Admin::get_upsales();
 
 		// Build a display list: every configured upsale, plus any product that
@@ -288,6 +381,53 @@ class WC_Order_Upsale_Analytics {
 			<p class="description">
 				<?php esc_html_e( 'CTR = הוספות לסל מתוך חשיפות. שיעור המרה = רכישות שהושלמו מתוך הוספות לסל.', 'wc-order-upsale' ); ?>
 			</p>
+
+			<?php
+			$base_url = admin_url( 'admin.php?page=wc-order-upsales-stats' );
+			$today    = current_time( 'Y-m-d' );
+			$ts       = (int) current_time( 'timestamp' );
+			$presets  = [
+				[ __( '7 ימים אחרונים', 'wc-order-upsale' ),  gmdate( 'Y-m-d', $ts - 6 * DAY_IN_SECONDS ),  $today ],
+				[ __( '30 ימים אחרונים', 'wc-order-upsale' ), gmdate( 'Y-m-d', $ts - 29 * DAY_IN_SECONDS ), $today ],
+				[ __( 'החודש', 'wc-order-upsale' ),           gmdate( 'Y-m-01', $ts ),                      $today ],
+			];
+			?>
+			<form method="get" class="wc-upsale-stats-filter">
+				<input type="hidden" name="page" value="wc-order-upsales-stats">
+				<label>
+					<?php esc_html_e( 'מתאריך', 'wc-order-upsale' ); ?>
+					<input type="date" name="from" value="<?php echo esc_attr( $from ?? '' ); ?>" max="<?php echo esc_attr( $today ); ?>">
+				</label>
+				<label>
+					<?php esc_html_e( 'עד תאריך', 'wc-order-upsale' ); ?>
+					<input type="date" name="to" value="<?php echo esc_attr( $to ?? '' ); ?>" max="<?php echo esc_attr( $today ); ?>">
+				</label>
+				<button type="submit" class="button"><?php esc_html_e( 'סנן', 'wc-order-upsale' ); ?></button>
+				<?php if ( $from || $to ) : ?>
+					<a class="button button-link" href="<?php echo esc_url( $base_url ); ?>"><?php esc_html_e( 'כל הזמן', 'wc-order-upsale' ); ?></a>
+				<?php endif; ?>
+				<span class="wc-upsale-presets">
+					<?php foreach ( $presets as $preset ) : ?>
+						<a class="button button-small"
+							href="<?php echo esc_url( add_query_arg( [ 'from' => $preset[1], 'to' => $preset[2] ], $base_url ) ); ?>">
+							<?php echo esc_html( $preset[0] ); ?>
+						</a>
+					<?php endforeach; ?>
+				</span>
+			</form>
+
+			<?php if ( $from || $to ) : ?>
+				<p class="description wc-upsale-active-range">
+					<?php
+					printf(
+						/* translators: 1: start date, 2: end date */
+						esc_html__( 'טווח מוצג: %1$s – %2$s', 'wc-order-upsale' ),
+						esc_html( $from ? date_i18n( get_option( 'date_format' ), strtotime( $from ) ) : '…' ),
+						esc_html( $to ? date_i18n( get_option( 'date_format' ), strtotime( $to ) ) : '…' )
+					);
+					?>
+				</p>
+			<?php endif; ?>
 
 			<table class="wp-list-table widefat fixed striped wc-upsale-stats-table">
 				<thead>
