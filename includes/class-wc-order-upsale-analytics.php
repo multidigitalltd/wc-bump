@@ -199,6 +199,14 @@ class WC_Order_Upsale_Analytics {
 			$where   .= ' AND stat_date <= %s';
 			$params[] = $to;
 		}
+		// Once any date filter is active, never include the migration sentinel
+		// row: its pre-tracking lifetime totals belong only to "all time", not
+		// to any real calendar range (e.g. a "to"-only filter would otherwise
+		// sweep the 1970-01-01 row back in).
+		if ( $from || $to ) {
+			$where   .= ' AND stat_date <> %s';
+			$params[] = self::LEGACY_DATE;
+		}
 
 		$sql = "SELECT product_id,
 					SUM(impressions) AS impressions,
