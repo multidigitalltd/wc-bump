@@ -34,8 +34,9 @@ class WC_Order_Upsale_Analytics {
 		add_action( 'woocommerce_order_status_processing', [ $this, 'record_order' ], 20, 1 );
 		add_action( 'woocommerce_order_status_completed',  [ $this, 'record_order' ], 20, 1 );
 
-		// Stats admin page.
-		add_action( 'admin_menu',                                  [ $this, 'add_menu' ], 20 );
+		// Stats admin page. Priority 99 ensures WooCommerce has already
+		// registered its Analytics menu so we can nest under it.
+		add_action( 'admin_menu',                                  [ $this, 'add_menu' ], 99 );
 		add_action( 'admin_post_wc_order_upsale_reset_stats',      [ $this, 'handle_reset' ] );
 
 		// Make sure the table exists even after a plugin update where the
@@ -312,8 +313,8 @@ class WC_Order_Upsale_Analytics {
 	public function add_menu(): void {
 		// Nest the report under WooCommerce » Analytics so it sits with the
 		// other analytical data rather than loose in the WooCommerce menu.
-		// Fall back to the main WooCommerce menu if Analytics is unavailable.
-		$parent = $this->analytics_menu_available() ? 'wc-admin' : 'woocommerce';
+		// Fall back to the main WooCommerce menu when Analytics is unavailable.
+		$parent = $this->analytics_menu_slug() ?? 'woocommerce';
 
 		add_submenu_page(
 			$parent,
@@ -325,10 +326,28 @@ class WC_Order_Upsale_Analytics {
 		);
 	}
 
-	/** Whether the WooCommerce Analytics (wc-admin) menu is registered. */
-	private function analytics_menu_available(): bool {
+	/**
+	 * Resolve the parent slug of the WooCommerce Analytics menu, or null when
+	 * it is not present.
+	 *
+	 * WooCommerce registers Analytics as a wc-admin page whose top-level menu
+	 * slug is path-based (e.g. "wc-admin&path=/analytics/overview") rather than
+	 * a plain "wc-admin", and that exact string is the parent of its report
+	 * submenus. Since the path can vary by version, discover it dynamically
+	 * from the registered admin submenus instead of hard-coding it.
+	 */
+	private function analytics_menu_slug(): ?string {
 		global $submenu;
-		return isset( $submenu['wc-admin'] );
+
+		foreach ( array_keys( (array) $submenu ) as $slug ) {
+			if ( is_string( $slug )
+				&& false !== strpos( $slug, 'wc-admin' )
+				&& false !== strpos( $slug, 'analytics' ) ) {
+				return $slug;
+			}
+		}
+
+		return null;
 	}
 
 	public function handle_reset(): void {
