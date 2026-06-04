@@ -310,14 +310,25 @@ class WC_Order_Upsale_Analytics {
 	/* ─────────────────────── Admin stats page ────────────────── */
 
 	public function add_menu(): void {
+		// Nest the report under WooCommerce » Analytics so it sits with the
+		// other analytical data rather than loose in the WooCommerce menu.
+		// Fall back to the main WooCommerce menu if Analytics is unavailable.
+		$parent = $this->analytics_menu_available() ? 'wc-admin' : 'woocommerce';
+
 		add_submenu_page(
-			'woocommerce',
+			$parent,
 			__( 'סטטיסטיקות Upsale', 'wc-order-upsale' ),
 			__( 'סטטיסטיקות Upsale', 'wc-order-upsale' ),
 			'manage_woocommerce',
 			'wc-order-upsales-stats',
 			[ $this, 'render_stats_page' ]
 		);
+	}
+
+	/** Whether the WooCommerce Analytics (wc-admin) menu is registered. */
+	private function analytics_menu_available(): bool {
+		global $submenu;
+		return isset( $submenu['wc-admin'] );
 	}
 
 	public function handle_reset(): void {

@@ -3,7 +3,7 @@
  * Plugin Name: WC Order Upsale
  * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט
  * Version: 1.4.0
- * Author: Multi-Digital
+ * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
  * Requires PHP: 8.0
