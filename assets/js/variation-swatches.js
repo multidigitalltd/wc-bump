@@ -39,7 +39,10 @@
 				return this.value === value;
 			} ).first();
 
-			var disabled = $option.length ? $option.is( ':disabled' ) : false;
+			// WooCommerce marks unavailable combinations either by disabling the
+			// matching <option> or by removing it entirely — both mean the swatch
+			// is not selectable, so a missing option counts as unavailable.
+			var disabled = ! $option.length || $option.is( ':disabled' );
 			var selected = value === current && current !== '';
 
 			$btn.toggleClass( 'is-selected', selected );

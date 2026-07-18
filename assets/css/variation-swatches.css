@@ -1,6 +1,11 @@
 /**
  * Beautiful Variations — frontend swatch styles.
- * Scoped to .wcse-* so nothing else on the store is affected.
+ *
+ * Scoped to .wcse-* so nothing else on the store is affected. Typography and
+ * text colour are inherited from the active theme (font-family / color:
+ * inherit), and accents are derived from the theme's own text colour via
+ * currentColor + color-mix, so the swatches blend into any store. Neutral hex
+ * fallbacks are declared first for browsers without color-mix() support.
  */
 
 .wcse-swatches {
@@ -10,6 +15,7 @@
 	gap: 10px;
 	margin: 6px 0 4px;
 	align-items: center;
+	font-family: inherit;
 }
 
 /* Hide the native <select> once JS has taken over (graceful fallback if not). */
@@ -28,37 +34,45 @@
 .wcse-swatch {
 	min-width: var(--wcse-size);
 	height: var(--wcse-size);
-	padding: 0 12px;
+	padding: 0 14px;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	box-sizing: border-box;
-	border: 1.5px solid #d9d9e3;
-	background: #fff;
-	color: #2b2b33;
-	border-radius: 999px;
-	cursor: pointer;
+	/* Inherit the theme's font + text colour. */
+	font-family: inherit;
+	color: inherit;
+	background: transparent;
 	font-size: 14px;
 	font-weight: 600;
 	line-height: 1;
-	transition: border-color .15s ease, box-shadow .15s ease, color .15s ease, opacity .15s ease;
+	cursor: pointer;
+	/* Fully-round pill by default ("rounder"). */
+	border-radius: 999px;
+	/* Neutral fallback, then a theme-derived translucent border. */
+	border: 1.5px solid #d9d9e3;
+	border-color: color-mix(in srgb, currentColor 24%, transparent);
+	transition: border-color .15s ease, box-shadow .15s ease, opacity .15s ease;
 	-webkit-appearance: none;
 	appearance: none;
 }
 
-.wcse-shape-rounded .wcse-swatch { border-radius: 12px; }
-.wcse-shape-square  .wcse-swatch { border-radius: 4px; }
+.wcse-shape-rounded .wcse-swatch { border-radius: 14px; }
+.wcse-shape-square  .wcse-swatch { border-radius: 6px; }
 
-.wcse-swatch:hover  { border-color: #8a8a99; }
+.wcse-swatch:hover {
+	border-color: #8a8a99;
+	border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
 .wcse-swatch:focus-visible {
-	outline: 2px solid #2563eb;
+	outline: 2px solid currentColor;
 	outline-offset: 2px;
 }
 
 .wcse-swatch.is-selected {
-	border-color: #111;
-	color: #111;
-	box-shadow: inset 0 0 0 1px #111;
+	border-color: currentColor;
+	box-shadow: inset 0 0 0 1px currentColor;
 }
 
 .wcse-swatch.wcse-disabled {
@@ -72,16 +86,18 @@
 	pointer-events: none;
 }
 
-/* ── Colour swatches ─────────────────────────────────────────── */
+/* ── Colour swatches ─────────────────────────────────────────────────
+ * Styling is keyed on the per-button .wcse-swatch--color modifier (not the
+ * group), so an unresolved colour value still renders as a text pill. */
 
-.wcse-is-color .wcse-swatch {
+.wcse-swatch--color {
 	width: var(--wcse-size);
 	min-width: 0;
 	padding: 0;
 	position: relative;
 }
 
-.wcse-swatch-color {
+.wcse-swatch--color .wcse-swatch-color {
 	display: block;
 	width: calc(var(--wcse-size) - 12px);
 	height: calc(var(--wcse-size) - 12px);
@@ -91,9 +107,9 @@
 	pointer-events: none;
 }
 
-.wcse-is-color .wcse-swatch.is-selected {
-	border-color: #111;
+.wcse-swatch--color.is-selected {
+	border-color: currentColor;
 	box-shadow: none;
-	outline: 2px solid #111;
+	outline: 2px solid currentColor;
 	outline-offset: 2px;
 }

@@ -15,6 +15,9 @@ class WC_Order_Upsale_Variation_Swatches {
 
 	const OPTION = 'wc_store_enhancer_swatches';
 
+	/** Hook suffix of the settings page, captured so asset loading is parent-agnostic. */
+	private string $hook_suffix = '';
+
 	public function __construct() {
 		// Frontend — append swatches after each variation dropdown.
 		add_filter( 'woocommerce_dropdown_variation_attribute_options_html', [ $this, 'render_swatches' ], 20, 2 );
@@ -30,14 +33,15 @@ class WC_Order_Upsale_Variation_Swatches {
 
 	public static function get_settings(): array {
 		return wp_parse_args( (array) get_option( self::OPTION, [] ), [
-			'enabled' => 1,
-			'shape'   => 'circle', // circle | rounded | square
-			'size'    => 44,
+			'shape' => 'circle', // circle | rounded | square
+			'size'  => 44,
 		] );
 	}
 
+	/** Master on/off comes from the dashboard module registry. */
 	private function is_enabled(): bool {
-		return ! empty( self::get_settings()['enabled'] );
+		return ! class_exists( 'WC_Order_Upsale_Modules' )
+			|| WC_Order_Upsale_Modules::is_enabled( 'variation_swatches' );
 	}
 
 	/* ─────────────────────────── Frontend ───────────────────────────── */
@@ -137,16 +141,22 @@ class WC_Order_Upsale_Variation_Swatches {
 
 	/** Build a single swatch button. */
 	private function button( string $value, string $label, string $color, bool $selected ): string {
+		// The colour-circle vs text-pill styling is driven by a per-button
+		// modifier class, so an unresolved colour inside a colour attribute still
+		// renders as a proper text pill instead of an overflowing circle.
 		if ( '' !== $color ) {
-			$inner = '<span class="wcse-swatch-color" aria-hidden="true"></span>';
-			$style = ' style="--wcse-color:' . esc_attr( $color ) . '"';
+			$modifier = ' wcse-swatch--color';
+			$inner    = '<span class="wcse-swatch-color" aria-hidden="true"></span>';
+			$style    = ' style="--wcse-color:' . esc_attr( $color ) . '"';
 		} else {
-			$inner = '<span class="wcse-swatch-text">' . esc_html( $label ) . '</span>';
-			$style = '';
+			$modifier = ' wcse-swatch--label';
+			$inner    = '<span class="wcse-swatch-text">' . esc_html( $label ) . '</span>';
+			$style    = '';
 		}
 
 		return sprintf(
-			'<button type="button" class="wcse-swatch%1$s" role="radio" aria-checked="%2$s" data-value="%3$s" title="%4$s" aria-label="%4$s"%5$s>%6$s</button>',
+			'<button type="button" class="wcse-swatch%1$s%2$s" role="radio" aria-checked="%3$s" data-value="%4$s" title="%5$s" aria-label="%5$s"%6$s>%7$s</button>',
+			$modifier,
 			$selected ? ' is-selected' : '',
 			$selected ? 'true' : 'false',
 			esc_attr( $value ),
@@ -249,8 +259,12 @@ class WC_Order_Upsale_Variation_Swatches {
 	/* ─────────────────────────── Admin page ─────────────────────────── */
 
 	public function add_menu(): void {
-		add_submenu_page(
-			'woocommerce',
+		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
+			? WC_Order_Upsale_Dashboard::MENU_SLUG
+			: 'woocommerce';
+
+		$this->hook_suffix = (string) add_submenu_page(
+			$parent,
 			__( 'וריאציות יפות', 'wc-order-upsale' ),
 			__( 'וריאציות יפות', 'wc-order-upsale' ),
 			'manage_woocommerce',
@@ -260,7 +274,7 @@ class WC_Order_Upsale_Variation_Swatches {
 	}
 
 	public function admin_assets( string $hook ): void {
-		if ( 'woocommerce_page_wc-store-enhancer-swatches' !== $hook ) {
+		if ( $hook !== $this->hook_suffix ) {
 			return;
 		}
 		wp_enqueue_style(
@@ -283,9 +297,8 @@ class WC_Order_Upsale_Variation_Swatches {
 			? $_POST['shape'] : 'circle';
 
 		update_option( self::OPTION, [
-			'enabled' => empty( $_POST['enabled'] ) ? 0 : 1,
-			'shape'   => $shape,
-			'size'    => max( 24, min( 120, absint( $_POST['size'] ?? 44 ) ) ),
+			'shape' => $shape,
+			'size'  => max( 24, min( 120, absint( $_POST['size'] ?? 44 ) ) ),
 		] );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-swatches&saved=1' ) );
@@ -312,17 +325,16 @@ class WC_Order_Upsale_Variation_Swatches {
 				<?php wp_nonce_field( 'wc_store_enhancer_swatches_save', 'wc_store_enhancer_swatches_nonce' ); ?>
 				<input type="hidden" name="action" value="save_wc_store_enhancer_swatches">
 
+				<?php if ( ! $this->is_enabled() ) : ?>
+					<div class="notice notice-warning inline">
+						<p>
+							<?php esc_html_e( 'המודול כבוי כרגע. הפעילו אותו מלוח הבקרה כדי שהכפתורים יופיעו בחזית.', 'wc-order-upsale' ); ?>
+							<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::MENU_SLUG ) ); ?>"><?php esc_html_e( 'לוח הבקרה', 'wc-order-upsale' ); ?></a>
+						</p>
+					</div>
+				<?php endif; ?>
+
 				<table class="form-table">
-					<tr>
-						<th scope="row"><?php esc_html_e( 'הפעלה', 'wc-order-upsale' ); ?></th>
-						<td>
-							<label>
-								<input type="hidden" name="enabled" value="0">
-								<input type="checkbox" name="enabled" value="1" <?php checked( ! empty( $settings['enabled'] ) ); ?>>
-								<?php esc_html_e( 'הצג וריאציות ככפתורים יפים בעמוד המוצר', 'wc-order-upsale' ); ?>
-							</label>
-						</td>
-					</tr>
 					<tr>
 						<th scope="row"><label for="wcse-shape"><?php esc_html_e( 'צורת הכפתור', 'wc-order-upsale' ); ?></label></th>
 						<td>
@@ -347,19 +359,19 @@ class WC_Order_Upsale_Variation_Swatches {
 					<p style="margin:0 0 6px;font-weight:600"><?php esc_html_e( 'אורך', 'wc-order-upsale' ); ?></p>
 					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
 						<?php foreach ( [ '90cm', '86cm', '83cm', '80cm', '78cm', '74cm', '70cm' ] as $i => $v ) : ?>
-							<button type="button" class="wcse-swatch<?php echo 0 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
+							<button type="button" class="wcse-swatch wcse-swatch--label<?php echo 0 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
 						<?php endforeach; ?>
 					</div>
 					<p style="margin:16px 0 6px;font-weight:600"><?php esc_html_e( 'מידה', 'wc-order-upsale' ); ?></p>
 					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
 						<?php foreach ( [ '44', '42', '40', '38', '36', '34' ] as $i => $v ) : ?>
-							<button type="button" class="wcse-swatch<?php echo 2 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
+							<button type="button" class="wcse-swatch wcse-swatch--label<?php echo 2 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
 						<?php endforeach; ?>
 					</div>
 					<p style="margin:16px 0 6px;font-weight:600"><?php esc_html_e( 'צבע', 'wc-order-upsale' ); ?></p>
 					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-color">
 						<?php foreach ( [ '#111111', '#1e2a5a' ] as $i => $c ) : ?>
-							<button type="button" class="wcse-swatch<?php echo 0 === $i ? ' is-selected' : ''; ?>" style="--wcse-color:<?php echo esc_attr( $c ); ?>"><span class="wcse-swatch-color"></span></button>
+							<button type="button" class="wcse-swatch wcse-swatch--color<?php echo 0 === $i ? ' is-selected' : ''; ?>" style="--wcse-color:<?php echo esc_attr( $c ); ?>"><span class="wcse-swatch-color"></span></button>
 						<?php endforeach; ?>
 					</div>
 				</div>

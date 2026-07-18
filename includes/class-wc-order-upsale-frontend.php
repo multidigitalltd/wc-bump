@@ -171,6 +171,10 @@ class WC_Order_Upsale_Frontend {
 		if ( ! is_checkout() ) {
 			return;
 		}
+		// Respect the dashboard module toggle.
+		if ( class_exists( 'WC_Order_Upsale_Modules' ) && ! WC_Order_Upsale_Modules::is_enabled( 'order_upsale' ) ) {
+			return;
+		}
 		// Prevent double rendering when multiple hooks fire on the same page.
 		if ( $this->upsales_rendered ) {
 			return;

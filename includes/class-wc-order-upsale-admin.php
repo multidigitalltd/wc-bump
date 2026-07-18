@@ -7,6 +7,9 @@ class WC_Order_Upsale_Admin {
 	const OPTION_BUMPS    = 'wc_order_upsales';
 	const OPTION_SETTINGS = 'wc_order_upsale_settings';
 
+	/** Hook suffix of the settings page, captured so asset loading is parent-agnostic. */
+	private string $hook_suffix = '';
+
 	public function __construct() {
 		add_action( 'admin_menu',                          [ $this, 'add_menu' ] );
 		add_action( 'admin_post_save_wc_order_upsales',    [ $this, 'save_settings' ] );
@@ -14,10 +17,17 @@ class WC_Order_Upsale_Admin {
 	}
 
 	public function add_menu(): void {
-		add_submenu_page(
-			'woocommerce',
-			__( 'Order Upsales', 'wc-order-upsale' ),
-			__( 'Order Upsales', 'wc-order-upsale' ),
+		// Hang under the "משפר חנויות ווקומרס" control panel when available,
+		// otherwise fall back to the WooCommerce menu. The page slug is unchanged
+		// either way, so existing bookmarks keep working.
+		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
+			? WC_Order_Upsale_Dashboard::MENU_SLUG
+			: 'woocommerce';
+
+		$this->hook_suffix = (string) add_submenu_page(
+			$parent,
+			__( 'אפסייל בהזמנה', 'wc-order-upsale' ),
+			__( 'אפסייל בהזמנה', 'wc-order-upsale' ),
 			'manage_woocommerce',
 			'wc-order-upsales',
 			[ $this, 'render_page' ]
@@ -25,7 +35,7 @@ class WC_Order_Upsale_Admin {
 	}
 
 	public function enqueue_scripts( string $hook ): void {
-		if ( $hook !== 'woocommerce_page_wc-order-upsales' ) {
+		if ( $hook !== $this->hook_suffix ) {
 			return;
 		}
 
