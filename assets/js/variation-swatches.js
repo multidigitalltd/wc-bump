@@ -15,7 +15,7 @@
 	/** Locate the native <select> that a swatch group belongs to. */
 	function findSelect( $wrap ) {
 		var attr   = $wrap.data( 'attribute' );
-		var $scope = $wrap.closest( 'td.value, .value, .woocommerce-variation-attribute, tr, form' );
+		var $scope = $wrap.closest( 'td.value, .value, .woocommerce-variation-attribute, tr' );
 		var $sel   = $scope.find( 'select[name="' + attr + '"]' );
 
 		if ( ! $sel.length ) {
@@ -23,6 +23,11 @@
 		}
 		if ( ! $sel.length ) {
 			$sel = $wrap.prevAll( 'select' ).first();
+		}
+		// Last resort: match by attribute name anywhere in the variation form.
+		if ( ! $sel.length ) {
+			var $form = $wrap.closest( '.variations_form, form' );
+			$sel = $form.find( 'select[name="' + attr + '"], select[data-attribute_name="' + attr + '"]' );
 		}
 		return $sel.first();
 	}
