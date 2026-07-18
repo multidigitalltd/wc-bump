@@ -25,11 +25,18 @@ class WC_Order_Upsale_Updater {
 	const CACHE_KEY = 'wc_store_enhancer_update_cache';
 	const CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
+	/** The bootstrap instance, reused by status() so hooks are registered once. */
+	private static ?self $instance = null;
+
 	private string $file;      // Absolute path to the main plugin file.
 	private string $basename;  // e.g. "wc-bump/wc-order-upsale.php".
 	private string $slug;      // Plugin folder slug, e.g. "wc-bump".
 
 	public function __construct( string $file ) {
+		if ( null === self::$instance ) {
+			self::$instance = $this;
+		}
+
 		$this->file     = $file;
 		$this->basename = plugin_basename( $file );
 		$slug           = dirname( $this->basename );
@@ -68,7 +75,8 @@ class WC_Order_Upsale_Updater {
 	 * @return array{update_available:bool,new_version:string,current_version:string}
 	 */
 	public static function status(): array {
-		$instance = new self( defined( 'WC_ORDER_UPSALE_FILE' ) ? WC_ORDER_UPSALE_FILE : __FILE__ );
+		// Reuse the bootstrap instance so its hooks are not registered twice.
+		$instance = self::$instance ?? new self( defined( 'WC_ORDER_UPSALE_FILE' ) ? WC_ORDER_UPSALE_FILE : __FILE__ );
 		$remote   = $instance->get_remote();
 		$current  = $instance->current_version();
 
@@ -89,7 +97,8 @@ class WC_Order_Upsale_Updater {
 	 */
 	private function get_remote( bool $force = false ) {
 		if ( ! $force ) {
-			$cached = get_transient( self::CACHE_KEY );
+			// Network-scoped to match the site transient (update_plugins) it feeds.
+			$cached = get_site_transient( self::CACHE_KEY );
 			if ( false !== $cached ) {
 				return is_object( $cached ) ? $cached : null;
 			}
@@ -101,7 +110,7 @@ class WC_Order_Upsale_Updater {
 			: $this->fetch_github_release( $settings['repo'], $settings['token'] );
 
 		// Cache both hits and misses (as a sentinel) to avoid hammering the API.
-		set_transient( self::CACHE_KEY, $info ?: 0, self::CACHE_TTL );
+		set_site_transient( self::CACHE_KEY, $info ?: 0, self::CACHE_TTL );
 
 		return $info;
 	}
@@ -120,7 +129,7 @@ class WC_Order_Upsale_Updater {
 			$headers['Authorization'] = 'Bearer ' . $token;
 		}
 
-		$response = wp_remote_get( "https://api.github.com/repos/{$repo}/releases/latest", [
+		$response = wp_safe_remote_get( "https://api.github.com/repos/{$repo}/releases/latest", [
 			'timeout' => 15,
 			'headers' => $headers,
 		] );
@@ -165,7 +174,10 @@ class WC_Order_Upsale_Updater {
 			return null;
 		}
 
-		$response = wp_remote_get( $url, [ 'timeout' => 15 ] );
+		// wp_safe_remote_get() applies reject_unsafe_urls, blocking loopback,
+		// link-local and private-range hosts (SSRF hardening) for this
+		// operator-supplied URL.
+		$response = wp_safe_remote_get( $url, [ 'timeout' => 15 ] );
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
 			return null;
 		}
@@ -282,15 +294,26 @@ class WC_Order_Upsale_Updater {
 
 	/**
 	 * Attach the configured GitHub token when WordPress downloads the update
-	 * package, so private-repo zipballs/assets can be fetched.
+	 * package, so private-repo zipballs can be fetched.
+	 *
+	 * Scoped to the exact package URL this plugin resolved and only for the
+	 * GitHub API/codeload hosts — so the token is never carried onto unrelated
+	 * requests or leaked onto the signed CDN (objects.githubusercontent.com)
+	 * that release-asset URLs redirect to.
 	 */
 	public function authorize_download( $args, $url ) {
 		$settings = self::get_settings();
 		if ( 'github' !== $settings['source'] || '' === $settings['token'] ) {
 			return $args;
 		}
+
+		$remote = $this->get_remote();
+		if ( ! $remote || empty( $remote->download_url ) || (string) $url !== (string) $remote->download_url ) {
+			return $args;
+		}
+
 		$host = wp_parse_url( (string) $url, PHP_URL_HOST );
-		if ( in_array( $host, [ 'api.github.com', 'codeload.github.com', 'github.com' ], true ) ) {
+		if ( in_array( $host, [ 'api.github.com', 'codeload.github.com' ], true ) ) {
 			if ( ! isset( $args['headers'] ) || ! is_array( $args['headers'] ) ) {
 				$args['headers'] = [];
 			}
@@ -300,17 +323,25 @@ class WC_Order_Upsale_Updater {
 	}
 
 	public function clear_cache(): void {
-		delete_transient( self::CACHE_KEY );
+		delete_site_transient( self::CACHE_KEY );
 	}
 
 	/* ─────────────────────────── Admin page ──────────────────────────── */
 
 	public function add_menu(): void {
+		// Changing where plugin code is pulled from is a plugin-management
+		// action, so it requires update_plugins (administrators) — never merely
+		// manage_woocommerce (shop managers). Fall back to a parent that always
+		// exists when the WooCommerce-gated dashboard is absent.
+		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
+			? WC_Order_Upsale_Dashboard::MENU_SLUG
+			: 'options-general.php';
+
 		add_submenu_page(
-			WC_Order_Upsale_Dashboard::MENU_SLUG,
+			$parent,
 			__( 'עדכונים', 'wc-order-upsale' ),
 			__( 'עדכונים', 'wc-order-upsale' ),
-			'manage_woocommerce',
+			'update_plugins',
 			'wc-store-enhancer-updates',
 			[ $this, 'render_page' ]
 		);
@@ -320,14 +351,21 @@ class WC_Order_Upsale_Updater {
 		if ( ! check_admin_referer( 'wc_store_enhancer_update_save', 'wc_store_enhancer_update_nonce' ) ) {
 			wp_die( 'Security check failed' );
 		}
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! current_user_can( 'update_plugins' ) ) {
 			wp_die( 'Unauthorized' );
 		}
+
+		$existing = self::get_settings();
+
+		// The token field is rendered blank (never echoing the secret); an empty
+		// submission keeps the stored token instead of wiping it.
+		$token_input = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) );
+		$token       = '' === $token_input ? $existing['token'] : $token_input;
 
 		update_option( self::OPTION, [
 			'source' => in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true ) ? $_POST['source'] : 'github',
 			'repo'   => sanitize_text_field( wp_unslash( $_POST['repo'] ?? '' ) ),
-			'token'  => sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) ),
+			'token'  => $token,
 			'url'    => esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) ),
 		] );
 
@@ -340,7 +378,7 @@ class WC_Order_Upsale_Updater {
 		if ( ! check_admin_referer( 'wc_store_enhancer_check_update' ) ) {
 			wp_die( 'Security check failed' );
 		}
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! current_user_can( 'update_plugins' ) ) {
 			wp_die( 'Unauthorized' );
 		}
 
@@ -434,8 +472,14 @@ class WC_Order_Upsale_Updater {
 					<tr>
 						<th scope="row"><label for="wcse-token"><?php esc_html_e( 'GitHub Token (למאגר פרטי)', 'wc-order-upsale' ); ?></label></th>
 						<td>
-							<input type="password" id="wcse-token" name="token" value="<?php echo esc_attr( $settings['token'] ); ?>" class="regular-text" autocomplete="off">
-							<p class="description"><?php esc_html_e( 'אופציונלי. נדרש רק אם המאגר פרטי. הרשאת "Contents: read" מספיקה.', 'wc-order-upsale' ); ?></p>
+							<input type="password" id="wcse-token" name="token" value="" class="regular-text" autocomplete="off"
+								placeholder="<?php echo '' !== $settings['token'] ? '••••••••••••' : ''; ?>">
+							<p class="description">
+								<?php esc_html_e( 'אופציונלי. נדרש רק אם המאגר פרטי. הרשאת "Contents: read" מספיקה.', 'wc-order-upsale' ); ?>
+								<?php if ( '' !== $settings['token'] ) : ?>
+									<br><?php esc_html_e( 'Token שמור כבר קיים. השאירו ריק כדי לשמור אותו, או הזינו חדש כדי להחליף.', 'wc-order-upsale' ); ?>
+								<?php endif; ?>
+							</p>
 						</td>
 					</tr>
 					<tr>

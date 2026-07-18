@@ -43,6 +43,8 @@
 	display: inline-flex !important;
 	align-items: center !important;
 	justify-content: center !important;
+	/* Never grow/shrink to the row width — content-sized, several per line. */
+	flex: 0 0 auto !important;
 	width: auto !important;
 	min-width: var(--wcse-size) !important;
 	max-width: none !important;

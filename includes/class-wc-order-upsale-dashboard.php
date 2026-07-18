@@ -93,6 +93,7 @@ class WC_Order_Upsale_Dashboard {
 					);
 					?>
 				</span>
+				<?php $can_update = current_user_can( 'update_plugins' ); ?>
 				<?php if ( $update && ! empty( $update['update_available'] ) ) : ?>
 					<span class="wcse-update-pill wcse-update-available">
 						<?php
@@ -102,16 +103,20 @@ class WC_Order_Upsale_Dashboard {
 							esc_html( $update['new_version'] )
 						);
 						?>
-						<a class="button button-primary button-small" href="<?php echo esc_url( self_admin_url( 'plugins.php' ) ); ?>">
-							<?php esc_html_e( 'עדכן עכשיו', 'wc-order-upsale' ); ?>
-						</a>
+						<?php if ( $can_update ) : ?>
+							<a class="button button-primary button-small" href="<?php echo esc_url( self_admin_url( 'plugins.php' ) ); ?>">
+								<?php esc_html_e( 'עדכן עכשיו', 'wc-order-upsale' ); ?>
+							</a>
+						<?php endif; ?>
 					</span>
 				<?php elseif ( $update ) : ?>
 					<span class="wcse-update-pill wcse-update-current"><?php esc_html_e( 'מעודכן לגרסה האחרונה', 'wc-order-upsale' ); ?></span>
 				<?php endif; ?>
-				<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=wc-store-enhancer-updates' ) ); ?>">
-					<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
-				</a>
+				<?php if ( $can_update ) : ?>
+					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=wc-store-enhancer-updates' ) ); ?>">
+						<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
+					</a>
+				<?php endif; ?>
 			</div>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">

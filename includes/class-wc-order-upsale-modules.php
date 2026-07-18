@@ -48,9 +48,23 @@ class WC_Order_Upsale_Modules {
 		$saved  = (array) get_option( self::OPTION, [] );
 		$states = [];
 		foreach ( self::definitions() as $id => $def ) {
-			$states[ $id ] = array_key_exists( $id, $saved )
-				? (bool) $saved[ $id ]
-				: (bool) $def['default'];
+			if ( array_key_exists( $id, $saved ) ) {
+				$states[ $id ] = (bool) $saved[ $id ];
+				continue;
+			}
+
+			$default = (bool) $def['default'];
+
+			// Honour the legacy per-feature "enabled" flag from before this
+			// registry existed, so an explicit off is never silently flipped on.
+			if ( 'variation_swatches' === $id ) {
+				$legacy = (array) get_option( 'wc_store_enhancer_swatches', [] );
+				if ( array_key_exists( 'enabled', $legacy ) ) {
+					$default = (bool) $legacy['enabled'];
+				}
+			}
+
+			$states[ $id ] = $default;
 		}
 		return $states;
 	}
