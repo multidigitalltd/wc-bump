@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: WC Order Upsale
- * Description: הצג מוצרי אפסייל לפני התשלום בעמוד הצ'קאאוט
- * Version: 1.4.1
+ * Plugin Name: משפר חנויות ווקומרס
+ * Description: משפר חנויות ווקומרס — אפסייל בצ'קאאוט + הצגת וריאציות המוצר ככפתורים יפים (מידה, אורך, צבע).
+ * Version: 1.5.0
  * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.4.1' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.5.0' );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_URL', plugin_dir_url( __FILE__ ) );
 
@@ -40,8 +40,10 @@ add_action( 'plugins_loaded', function () {
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-admin.php';
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-frontend.php';
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-analytics.php';
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-variation-swatches.php';
 
 	new WC_Order_Upsale_Admin();
 	new WC_Order_Upsale_Frontend();
 	new WC_Order_Upsale_Analytics();
+	new WC_Order_Upsale_Variation_Swatches();
 } );
