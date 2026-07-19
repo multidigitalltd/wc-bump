@@ -11,11 +11,17 @@ defined( 'ABSPATH' ) || exit;
  */
 class WC_Order_Upsale_Dashboard {
 
-	const MENU_SLUG = 'wc-store-enhancer';
+	const MENU_SLUG     = 'wc-store-enhancer';
+	const SETTINGS_SLUG = 'wc-store-enhancer-settings';
+
+	/** Hook suffix of the shared settings page, captured for asset loading. */
+	private string $settings_hook = '';
 
 	public function __construct() {
 		// Priority 9 so the parent menu exists before modules add their submenus (priority 10).
 		add_action( 'admin_menu',                                     [ $this, 'add_menu' ], 9 );
+		// Priority 100 so the shared "הגדרות" page is registered last in the submenu order.
+		add_action( 'admin_menu',                                     [ $this, 'add_settings_menu' ], 100 );
 		add_action( 'admin_post_wc_store_enhancer_save_modules',      [ $this, 'save_modules' ] );
 		add_action( 'admin_enqueue_scripts',                          [ $this, 'assets' ] );
 	}
@@ -41,14 +47,86 @@ class WC_Order_Upsale_Dashboard {
 		);
 	}
 
+	/** The shared, tabbed "הגדרות" page — registered last so it sits at the bottom. */
+	public function add_settings_menu(): void {
+		$this->settings_hook = (string) add_submenu_page(
+			self::MENU_SLUG,
+			__( 'הגדרות', 'wc-order-upsale' ),
+			__( 'הגדרות', 'wc-order-upsale' ),
+			'manage_woocommerce',
+			self::SETTINGS_SLUG,
+			[ $this, 'render_settings' ]
+		);
+	}
+
 	public function assets( string $hook ): void {
-		if ( 'toplevel_page_' . self::MENU_SLUG !== $hook ) {
+		if ( 'toplevel_page_' . self::MENU_SLUG === $hook ) {
+			// Inline-only stylesheet: register a src-less handle and attach CSS to it.
+			wp_register_style( 'wcse-dashboard', false, [], WC_ORDER_UPSALE_VERSION );
+			wp_enqueue_style( 'wcse-dashboard' );
+			wp_add_inline_style( 'wcse-dashboard', $this->inline_css() );
 			return;
 		}
-		// Inline-only stylesheet: register a src-less handle and attach CSS to it.
-		wp_register_style( 'wcse-dashboard', false, [], WC_ORDER_UPSALE_VERSION );
-		wp_enqueue_style( 'wcse-dashboard' );
-		wp_add_inline_style( 'wcse-dashboard', $this->inline_css() );
+
+		// Settings page needs the swatch stylesheet for the live preview.
+		if ( '' !== $this->settings_hook && $hook === $this->settings_hook ) {
+			wp_enqueue_style(
+				'wc-order-upsale-swatches',
+				WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
+				[],
+				WC_ORDER_UPSALE_VERSION
+			);
+		}
+	}
+
+	/** Render the shared settings page with a tab per registered module. */
+	public function render_settings(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( 'Unauthorized' );
+		}
+
+		/**
+		 * Modules register their settings tabs here.
+		 *
+		 * @param array<int,array{id:string,label:string,callback:callable}> $tabs
+		 */
+		$tabs = (array) apply_filters( 'wc_store_enhancer_settings_tabs', [] );
+		$tabs = array_values( array_filter( $tabs, static fn( $t ) => ! empty( $t['id'] ) && is_callable( $t['callback'] ?? null ) ) );
+
+		if ( empty( $tabs ) ) {
+			echo '<div class="wrap"><h1>' . esc_html__( 'הגדרות', 'wc-order-upsale' ) . '</h1><p>'
+				. esc_html__( 'אין הגדרות זמינות.', 'wc-order-upsale' ) . '</p></div>';
+			return;
+		}
+
+		$ids       = wp_list_pluck( $tabs, 'id' );
+		$requested = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$active    = in_array( $requested, $ids, true ) ? $requested : $ids[0];
+		?>
+		<div class="wrap wcse-settings">
+			<h1><?php esc_html_e( 'הגדרות — משפר המרות', 'wc-order-upsale' ); ?></h1>
+
+			<nav class="nav-tab-wrapper wp-clearfix" aria-label="<?php esc_attr_e( 'לשוניות הגדרות', 'wc-order-upsale' ); ?>">
+				<?php foreach ( $tabs as $tab ) : ?>
+					<a class="nav-tab <?php echo $tab['id'] === $active ? 'nav-tab-active' : ''; ?>"
+						href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=' . $tab['id'] ) ); ?>">
+						<?php echo esc_html( $tab['label'] ); ?>
+					</a>
+				<?php endforeach; ?>
+			</nav>
+
+			<div class="wcse-settings-tab" style="margin-top:16px">
+				<?php
+				foreach ( $tabs as $tab ) {
+					if ( $tab['id'] === $active ) {
+						call_user_func( $tab['callback'] );
+						break;
+					}
+				}
+				?>
+			</div>
+		</div>
+		<?php
 	}
 
 	public function save_modules(): void {
@@ -113,7 +191,7 @@ class WC_Order_Upsale_Dashboard {
 					<span class="wcse-update-pill wcse-update-current"><?php esc_html_e( 'מעודכן לגרסה האחרונה', 'wc-order-upsale' ); ?></span>
 				<?php endif; ?>
 				<?php if ( $can_update ) : ?>
-					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=wc-store-enhancer-updates' ) ); ?>">
+					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=updates' ) ); ?>">
 						<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
 					</a>
 				<?php endif; ?>
@@ -174,7 +252,7 @@ class WC_Order_Upsale_Dashboard {
 
 	/** Service e-mail shown in the "order development" box (filterable). */
 	private static function service_email(): string {
-		return sanitize_email( apply_filters( 'wc_store_enhancer_service_email', 'multidigitalltd@gmail.com' ) );
+		return sanitize_email( apply_filters( 'wc_store_enhancer_service_email', 'service@multidigital.co.il' ) );
 	}
 
 	private function inline_css(): string {

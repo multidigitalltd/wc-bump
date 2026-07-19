@@ -48,10 +48,25 @@ class WC_Order_Upsale_Updater {
 		add_filter( 'http_request_args',                     [ $this, 'authorize_download' ], 10, 2 );
 		add_action( 'upgrader_process_complete',             [ $this, 'clear_cache' ] );
 
-		// Admin: settings + manual "check now".
-		add_action( 'admin_menu',                                 [ $this, 'add_menu' ] );
+		// Admin: settings tab on the shared page + manual "check now".
+		add_filter( 'wc_store_enhancer_settings_tabs',            [ $this, 'register_settings_tab' ], 20 );
 		add_action( 'admin_post_wc_store_enhancer_save_update',   [ $this, 'save_settings' ] );
 		add_action( 'admin_post_wc_store_enhancer_check_update',  [ $this, 'manual_check' ] );
+	}
+
+	/**
+	 * Register the "עדכונים" tab — only for users who can actually manage plugin
+	 * updates, so it never shows to shop managers.
+	 */
+	public function register_settings_tab( array $tabs ): array {
+		if ( current_user_can( 'update_plugins' ) ) {
+			$tabs[] = [
+				'id'       => 'updates',
+				'label'    => __( 'עדכונים', 'wc-order-upsale' ),
+				'callback' => [ $this, 'render_settings_tab' ],
+			];
+		}
+		return $tabs;
 	}
 
 	/* ─────────────────────────── Settings ───────────────────────────── */
@@ -347,26 +362,7 @@ class WC_Order_Upsale_Updater {
 		delete_site_transient( self::CACHE_KEY );
 	}
 
-	/* ─────────────────────────── Admin page ──────────────────────────── */
-
-	public function add_menu(): void {
-		// Changing where plugin code is pulled from is a plugin-management
-		// action, so it requires update_plugins (administrators) — never merely
-		// manage_woocommerce (shop managers). Fall back to a parent that always
-		// exists when the WooCommerce-gated dashboard is absent.
-		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
-			? WC_Order_Upsale_Dashboard::MENU_SLUG
-			: 'options-general.php';
-
-		add_submenu_page(
-			$parent,
-			__( 'עדכונים', 'wc-order-upsale' ),
-			__( 'עדכונים', 'wc-order-upsale' ),
-			'update_plugins',
-			'wc-store-enhancer-updates',
-			[ $this, 'render_page' ]
-		);
-	}
+	/* ─────────────────────────── Settings tab ───────────────────────── */
 
 	public function save_settings(): void {
 		if ( ! check_admin_referer( 'wc_store_enhancer_update_save', 'wc_store_enhancer_update_nonce' ) ) {
@@ -401,7 +397,7 @@ class WC_Order_Upsale_Updater {
 		], false );
 
 		$this->clear_cache();
-		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-updates&saved=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=updates&saved=1' ) );
 		exit;
 	}
 
@@ -418,18 +414,17 @@ class WC_Order_Upsale_Updater {
 		$remote    = $this->get_remote( true );
 		$available = $remote && version_compare( $remote->version, $this->current_version(), '>' );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-updates&checked=' . ( $available ? '1' : '0' ) ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=updates&checked=' . ( $available ? '1' : '0' ) ) );
 		exit;
 	}
 
-	public function render_page(): void {
+	/** Tab body rendered inside the shared settings page (no outer .wrap/h1). */
+	public function render_settings_tab(): void {
 		$settings = self::get_settings();
 		$remote   = $this->get_remote();
 		$current  = $this->current_version();
 		?>
-		<div class="wrap wcse-updates">
-			<h1><?php esc_html_e( 'עדכוני תוסף', 'wc-order-upsale' ); ?></h1>
-
+		<div class="wcse-updates">
 			<?php if ( isset( $_GET['saved'] ) ) : ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'ההגדרות נשמרו.', 'wc-order-upsale' ); ?></p></div>
 			<?php endif; ?>

@@ -16,9 +16,6 @@ class WC_Order_Upsale_Variation_Swatches {
 
 	const OPTION = 'wc_store_enhancer_swatches';
 
-	/** Hook suffix of the settings page, captured so asset loading is parent-agnostic. */
-	private string $hook_suffix = '';
-
 	public function __construct() {
 		// Frontend — append swatches after each variation dropdown.
 		add_filter( 'woocommerce_dropdown_variation_attribute_options_html', [ $this, 'render_swatches' ], 20, 2 );
@@ -27,10 +24,19 @@ class WC_Order_Upsale_Variation_Swatches {
 		// Shortcode: show only a product's colour swatches (e.g. on shop/archive cards).
 		add_shortcode( 'wc_color_swatches', [ $this, 'color_swatches_shortcode' ] );
 
-		// Admin settings page.
-		add_action( 'admin_menu',                                    [ $this, 'add_menu' ] );
-		add_action( 'admin_enqueue_scripts',                         [ $this, 'admin_assets' ] );
+		// Admin settings — registered as a tab on the shared "הגדרות" page.
+		add_filter( 'wc_store_enhancer_settings_tabs',               [ $this, 'register_settings_tab' ], 10 );
 		add_action( 'admin_post_save_wc_store_enhancer_swatches',    [ $this, 'save_settings' ] );
+	}
+
+	/** Register the "וריאציות יפות" tab on the shared settings page. */
+	public function register_settings_tab( array $tabs ): array {
+		$tabs[] = [
+			'id'       => 'swatches',
+			'label'    => __( 'וריאציות יפות', 'wc-order-upsale' ),
+			'callback' => [ $this, 'render_settings_tab' ],
+		];
+		return $tabs;
 	}
 
 	/* ─────────────────────────── Settings ───────────────────────────── */
@@ -397,34 +403,7 @@ class WC_Order_Upsale_Variation_Swatches {
 		];
 	}
 
-	/* ─────────────────────────── Admin page ─────────────────────────── */
-
-	public function add_menu(): void {
-		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
-			? WC_Order_Upsale_Dashboard::MENU_SLUG
-			: 'woocommerce';
-
-		$this->hook_suffix = (string) add_submenu_page(
-			$parent,
-			__( 'וריאציות יפות', 'wc-order-upsale' ),
-			__( 'וריאציות יפות', 'wc-order-upsale' ),
-			'manage_woocommerce',
-			'wc-store-enhancer-swatches',
-			[ $this, 'render_page' ]
-		);
-	}
-
-	public function admin_assets( string $hook ): void {
-		if ( $hook !== $this->hook_suffix ) {
-			return;
-		}
-		wp_enqueue_style(
-			'wc-order-upsale-swatches',
-			WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
-			[],
-			WC_ORDER_UPSALE_VERSION
-		);
-	}
+	/* ─────────────────────────── Settings tab ───────────────────────── */
 
 	public function save_settings(): void {
 		if ( ! check_admin_referer( 'wc_store_enhancer_swatches_save', 'wc_store_enhancer_swatches_nonce' ) ) {
@@ -442,16 +421,16 @@ class WC_Order_Upsale_Variation_Swatches {
 			'size'  => max( 24, min( 120, absint( $_POST['size'] ?? 44 ) ) ),
 		] );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-swatches&saved=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=swatches&saved=1' ) );
 		exit;
 	}
 
-	public function render_page(): void {
+	/** Tab body rendered inside the shared settings page (no outer .wrap/h1). */
+	public function render_settings_tab(): void {
 		$settings = self::get_settings();
 		$size     = max( 24, min( 120, (int) $settings['size'] ) );
 		?>
-		<div class="wrap wcse-admin">
-			<h1><?php esc_html_e( 'וריאציות יפות', 'wc-order-upsale' ); ?></h1>
+		<div class="wcse-admin">
 			<p class="description" style="max-width:720px">
 				<?php esc_html_e( 'הפיצ\'ר ממיר אוטומטית את תפריטי הבחירה של וריאציות המוצר (מידה, אורך, צבע וכו\') לכפתורים עגולים ויפים בעמוד המוצר. תכונות "צבע" מזוהות אוטומטית ומוצגות כעיגולי צבע.', 'wc-order-upsale' ); ?>
 			</p>
