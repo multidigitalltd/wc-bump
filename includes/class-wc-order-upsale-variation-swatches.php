@@ -209,7 +209,10 @@ class WC_Order_Upsale_Variation_Swatches {
 	 * Attributes:
 	 *   id   — product ID (defaults to the current loop product)
 	 *   size — swatch size in px (defaults to a compact archive size)
-	 *   link — "yes" (default) links each colour to the product, "no" for plain display
+	 *   link — "no" (default) shows plain colour dots; "yes" links each colour to
+	 *          the product with it preselected. Keep "no" when the loop card is
+	 *          itself a link (e.g. Elementor Loop Grid), since an <a> inside an
+	 *          <a> is invalid HTML and breaks the grid markup.
 	 *
 	 * @param array|string $atts Shortcode attributes.
 	 */
@@ -221,7 +224,7 @@ class WC_Order_Upsale_Variation_Swatches {
 		$atts = shortcode_atts( [
 			'id'   => 0,
 			'size' => 0,
-			'link' => 'yes',
+			'link' => 'no',
 		], $atts, 'wc_color_swatches' );
 
 		$product = absint( $atts['id'] )
@@ -439,10 +442,13 @@ class WC_Order_Upsale_Variation_Swatches {
 					<p>
 						<strong><?php esc_html_e( 'שורטקוד לארכיון:', 'wc-order-upsale' ); ?></strong>
 						<code>[wc_color_swatches]</code>
-						<?php esc_html_e( '— מציג רק את עיגולי הצבע של המוצר (לשימוש בכרטיס מוצר בארכיון/קטגוריה). כל צבע מקשר למוצר עם הצבע נבחר מראש.', 'wc-order-upsale' ); ?>
+						<?php esc_html_e( '— מציג רק את עיגולי הצבע של המוצר (לשימוש בכרטיס מוצר בארכיון/קטגוריה). כברירת מחדל תצוגה בלבד.', 'wc-order-upsale' ); ?>
 						<br>
 						<?php esc_html_e( 'אפשרויות: ', 'wc-order-upsale' ); ?>
-						<code>[wc_color_swatches id="123" size="22" link="no"]</code>
+						<code>[wc_color_swatches size="22"]</code>
+						<br>
+						<?php esc_html_e( 'להפיכת כל צבע לקישור למוצר (רק אם כרטיס המוצר עצמו אינו קישור — למשל ב-Elementor Loop Grid עם קישור על כל הכרטיס זה עלול לשבור את העמוד):', 'wc-order-upsale' ); ?>
+						<code>[wc_color_swatches link="yes"]</code>
 					</p>
 				</div>
 
