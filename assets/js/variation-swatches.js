@@ -154,13 +154,23 @@
 			} );
 
 			$wrap.on( 'keydown', '.wcse-swatch', function ( e ) {
+				// In RTL the horizontal arrows are mirrored so navigation follows
+				// the visual reading order (vertical arrows stay as-is).
+				var rtl = 'rtl' === ( window.getComputedStyle( $wrap[ 0 ] ).direction || 'ltr' );
+
 				switch ( e.key ) {
 					case 'ArrowRight':
+						e.preventDefault();
+						moveTo( $wrap, $select, this, rtl ? 'prev' : 'next' );
+						break;
+					case 'ArrowLeft':
+						e.preventDefault();
+						moveTo( $wrap, $select, this, rtl ? 'next' : 'prev' );
+						break;
 					case 'ArrowDown':
 						e.preventDefault();
 						moveTo( $wrap, $select, this, 'next' );
 						break;
-					case 'ArrowLeft':
 					case 'ArrowUp':
 						e.preventDefault();
 						moveTo( $wrap, $select, this, 'prev' );

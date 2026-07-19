@@ -183,7 +183,9 @@ class WC_Order_Upsale_Updater {
 
 	private function fetch_custom_manifest( string $url ) {
 		$url = esc_url_raw( trim( $url ) );
-		if ( '' === $url ) {
+		// Require HTTPS: the fetched manifest ultimately determines the package
+		// that gets installed as PHP, so TLS is the integrity guarantee.
+		if ( '' === $url || 0 !== stripos( $url, 'https://' ) ) {
 			return null;
 		}
 
@@ -200,9 +202,15 @@ class WC_Order_Upsale_Updater {
 			return null;
 		}
 
+		// The package is installed as executable PHP — only accept an HTTPS package URL.
+		$download_url = esc_url_raw( (string) $data->download_url );
+		if ( 0 !== stripos( $download_url, 'https://' ) ) {
+			return null;
+		}
+
 		return (object) [
 			'version'      => ltrim( (string) $data->version, 'vV' ),
-			'download_url' => esc_url_raw( (string) $data->download_url ),
+			'download_url' => $download_url,
 			'homepage'     => ! empty( $data->homepage ) ? esc_url_raw( (string) $data->homepage ) : '',
 			'requires'     => ! empty( $data->requires ) ? (string) $data->requires : '6.4',
 			'requires_php' => ! empty( $data->requires_php ) ? (string) $data->requires_php : '8.0',
@@ -379,12 +387,18 @@ class WC_Order_Upsale_Updater {
 		$token_input = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) );
 		$token       = ( '' === $token_input || $this->token_is_constant() ) ? $existing_token : $token_input;
 
+		$source = in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true )
+			? sanitize_key( wp_unslash( $_POST['source'] ) )
+			: 'github';
+
+		// autoload=false: this option can hold a secret token, so it must never be
+		// pulled into the alloptions cache on every page load.
 		update_option( self::OPTION, [
-			'source' => in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true ) ? $_POST['source'] : 'github',
+			'source' => $source,
 			'repo'   => sanitize_text_field( wp_unslash( $_POST['repo'] ?? '' ) ),
 			'token'  => $token,
 			'url'    => esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) ),
-		] );
+		], false );
 
 		$this->clear_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-updates&saved=1' ) );

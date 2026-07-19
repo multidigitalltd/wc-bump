@@ -137,8 +137,17 @@
 	height: calc(var(--wcse-size) - 12px);
 	border-radius: inherit;
 	background: var(--wcse-color, #ccc);
-	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+	/* >=3:1 boundary on white so light/white swatches stay perceivable
+	 * (WCAG 2.2 AA 1.4.11 Non-text Contrast). */
+	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .42);
 	pointer-events: none;
+}
+
+/* Disabled colour swatch: the circle itself must signal unavailability, since
+ * line-through does not read on an empty colour dot. */
+.wcse-swatches .wcse-swatch--color.wcse-disabled .wcse-swatch-color {
+	opacity: .35 !important;
+	filter: grayscale( 60% ) !important;
 }
 
 /* Colour swatch selected: keep the swatch colour, add a clear ring. */

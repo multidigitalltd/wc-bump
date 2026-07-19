@@ -76,40 +76,47 @@ class WC_Order_Upsale_Admin {
 		}
 
 		update_option( self::OPTION_SETTINGS, [
-			'heading'    => sanitize_text_field( $_POST['setting_heading']  ?? '' ),
+			'heading'    => sanitize_text_field( wp_unslash( $_POST['setting_heading'] ?? '' ) ),
 			'position'   => in_array( $_POST['setting_position'] ?? '', [ 'before_payment', 'after_order_table' ], true )
-				? $_POST['setting_position']
+				? sanitize_key( wp_unslash( $_POST['setting_position'] ) )
 				: 'before_payment',
-			'custom_css' => self::sanitize_css( $_POST['setting_custom_css'] ?? '' ),
+			'custom_css' => self::sanitize_css( wp_unslash( $_POST['setting_custom_css'] ?? '' ) ),
 		] );
 
-		$raw     = (array) ( $_POST['upsales'] ?? [] );
+		// wp_unslash() the whole tree once: WordPress slash-escapes $_POST, and
+		// sanitising without unslashing would store escaped quotes.
+		$raw     = wp_unslash( (array) ( $_POST['upsales'] ?? [] ) );
 		$upsales = [];
 
 		foreach ( $raw as $data ) {
+			$data       = (array) $data;
 			$product_id = absint( $data['product_id'] ?? 0 );
 			if ( ! $product_id ) {
 				continue;
 			}
 
 			$discount_type = in_array( $data['discount_type'] ?? '', [ 'none', 'percent', 'fixed' ], true )
-				? $data['discount_type'] : 'none';
+				? (string) $data['discount_type'] : 'none';
 
 			$condition_type = in_array( $data['condition_type'] ?? '', [ 'always', 'if_product', 'if_category' ], true )
-				? $data['condition_type'] : 'always';
+				? (string) $data['condition_type'] : 'always';
 
 			$raw_cta   = (array) ( $data['cta_lines'] ?? [] );
 			$cta_lines = array_slice( array_values( array_filter( array_map( 'sanitize_text_field', $raw_cta ) ) ), 0, 3 );
 
-			$raw_class   = $data['custom_class'] ?? '';
+			// Coerce to string first: a crafted array here would fatal explode().
+			$raw_class    = is_scalar( $data['custom_class'] ?? '' ) ? (string) $data['custom_class'] : '';
 			$custom_class = implode( ' ', array_filter( array_map( 'sanitize_html_class', explode( ' ', $raw_class ) ) ) );
+
+			// Cast to array so a crafted string value cannot fatal on offset access.
+			$style_in = (array) ( $data['style'] ?? [] );
 
 			$upsales[] = [
 				'product_id'         => $product_id,
 				'active'             => (bool) ( $data['active'] ?? false ),
 				'custom_class'       => $custom_class,
-				'title'              => wp_kses( $data['title'] ?? '', self::allowed_inline_html() ),
-				'description'        => wp_kses( $data['description'] ?? '', self::allowed_inline_html() ),
+				'title'              => wp_kses( is_string( $data['title'] ?? '' ) ? $data['title'] : '', self::allowed_inline_html() ),
+				'description'        => wp_kses( is_string( $data['description'] ?? '' ) ? $data['description'] : '', self::allowed_inline_html() ),
 				'badge_text'         => sanitize_text_field( $data['badge_text']         ?? '' ),
 				'urgency_text'       => sanitize_text_field( $data['urgency_text']        ?? '' ),
 				'cta_lines'          => $cta_lines,
@@ -122,15 +129,15 @@ class WC_Order_Upsale_Admin {
 				'condition_value'    => absint( $data['condition_value'] ?? 0 ),
 				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart'] ?? true ),
 				'style'              => [
-					'bg_color'          => sanitize_hex_color( $data['style']['bg_color']          ?? '' ) ?? '',
-					'border_color'      => sanitize_hex_color( $data['style']['border_color']      ?? '' ) ?? '',
-					'button_bg'         => sanitize_hex_color( $data['style']['button_bg']         ?? '' ) ?? '',
-					'button_text_color' => sanitize_hex_color( $data['style']['button_text_color'] ?? '' ) ?? '',
-					'badge_color'       => sanitize_hex_color( $data['style']['badge_color']       ?? '' ) ?? '',
-					'title_color'       => sanitize_hex_color( $data['style']['title_color']       ?? '' ) ?? '',
-					'desc_color'        => sanitize_hex_color( $data['style']['desc_color']        ?? '' ) ?? '',
-					'price_color'       => sanitize_hex_color( $data['style']['price_color']       ?? '' ) ?? '',
-					'custom_css'        => self::sanitize_css( $data['style']['custom_css']        ?? '' ),
+					'bg_color'          => sanitize_hex_color( self::str( $style_in['bg_color']          ?? '' ) ) ?? '',
+					'border_color'      => sanitize_hex_color( self::str( $style_in['border_color']      ?? '' ) ) ?? '',
+					'button_bg'         => sanitize_hex_color( self::str( $style_in['button_bg']         ?? '' ) ) ?? '',
+					'button_text_color' => sanitize_hex_color( self::str( $style_in['button_text_color'] ?? '' ) ) ?? '',
+					'badge_color'       => sanitize_hex_color( self::str( $style_in['badge_color']       ?? '' ) ) ?? '',
+					'title_color'       => sanitize_hex_color( self::str( $style_in['title_color']       ?? '' ) ) ?? '',
+					'desc_color'        => sanitize_hex_color( self::str( $style_in['desc_color']        ?? '' ) ) ?? '',
+					'price_color'       => sanitize_hex_color( self::str( $style_in['price_color']       ?? '' ) ) ?? '',
+					'custom_css'        => self::sanitize_css( $style_in['custom_css']                  ?? '' ),
 				],
 			];
 		}
@@ -170,10 +177,18 @@ class WC_Order_Upsale_Admin {
 		];
 	}
 
+	/** Coerce a raw request value to a string, treating non-scalars as empty. */
+	private static function str( $value ): string {
+		return is_scalar( $value ) ? (string) $value : '';
+	}
+
 	/**
 	 * Strip HTML and remove dangerous CSS constructs (expression, javascript:).
+	 *
+	 * @param mixed $css Raw value; non-string input is treated as empty.
 	 */
-	private static function sanitize_css( string $css ): string {
+	private static function sanitize_css( $css ): string {
+		$css = is_string( $css ) ? $css : '';
 		$css = wp_strip_all_tags( $css );
 		$css = preg_replace( '/expression\s*\(/i', '', $css );
 		$css = preg_replace( '/javascript\s*:/i', '', $css );

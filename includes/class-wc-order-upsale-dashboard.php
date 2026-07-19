@@ -59,7 +59,7 @@ class WC_Order_Upsale_Dashboard {
 			wp_die( 'Unauthorized' );
 		}
 
-		$enabled = array_map( 'sanitize_key', (array) ( $_POST['modules'] ?? [] ) );
+		$enabled = array_map( 'sanitize_key', (array) wp_unslash( $_POST['modules'] ?? [] ) );
 		WC_Order_Upsale_Modules::save( $enabled );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '&saved=1' ) );

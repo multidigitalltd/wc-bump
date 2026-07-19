@@ -305,7 +305,7 @@ class WC_Order_Upsale_Variation_Swatches {
 		}
 
 		$shape = in_array( $_POST['shape'] ?? '', [ 'circle', 'rounded', 'square' ], true )
-			? $_POST['shape'] : 'circle';
+			? sanitize_key( wp_unslash( $_POST['shape'] ) ) : 'circle';
 
 		update_option( self::OPTION, [
 			'shape' => $shape,
