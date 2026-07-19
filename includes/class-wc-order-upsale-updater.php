@@ -57,12 +57,25 @@ class WC_Order_Upsale_Updater {
 	/* ─────────────────────────── Settings ───────────────────────────── */
 
 	public static function get_settings(): array {
-		return wp_parse_args( (array) get_option( self::OPTION, [] ), [
+		$settings = wp_parse_args( (array) get_option( self::OPTION, [] ), [
 			'source' => 'github',
 			'repo'   => 'multidigitalltd/wc-bump',
 			'token'  => '',
 			'url'    => '',
 		] );
+
+		// Prefer a token defined outside the database (e.g. in wp-config.php):
+		// keeping the secret out of the options table is the recommended practice.
+		if ( defined( 'WC_STORE_ENHANCER_GITHUB_TOKEN' ) && '' !== (string) WC_STORE_ENHANCER_GITHUB_TOKEN ) {
+			$settings['token'] = (string) WC_STORE_ENHANCER_GITHUB_TOKEN;
+		}
+
+		return $settings;
+	}
+
+	/** Whether the token is supplied via constant (and therefore not editable in the UI). */
+	private function token_is_constant(): bool {
+		return defined( 'WC_STORE_ENHANCER_GITHUB_TOKEN' ) && '' !== (string) WC_STORE_ENHANCER_GITHUB_TOKEN;
 	}
 
 	private function current_version(): string {
@@ -355,12 +368,16 @@ class WC_Order_Upsale_Updater {
 			wp_die( 'Unauthorized' );
 		}
 
-		$existing = self::get_settings();
+		// Read the raw stored option (not get_settings(), which may substitute a
+		// constant-defined token) so we never persist the constant into the DB.
+		$stored         = (array) get_option( self::OPTION, [] );
+		$existing_token = isset( $stored['token'] ) ? (string) $stored['token'] : '';
 
 		// The token field is rendered blank (never echoing the secret); an empty
-		// submission keeps the stored token instead of wiping it.
+		// submission keeps the stored token instead of wiping it. When the token is
+		// provided via constant, the UI field is disabled and never overrides it.
 		$token_input = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) );
-		$token       = '' === $token_input ? $existing['token'] : $token_input;
+		$token       = ( '' === $token_input || $this->token_is_constant() ) ? $existing_token : $token_input;
 
 		update_option( self::OPTION, [
 			'source' => in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true ) ? $_POST['source'] : 'github',
@@ -472,12 +489,19 @@ class WC_Order_Upsale_Updater {
 					<tr>
 						<th scope="row"><label for="wcse-token"><?php esc_html_e( 'GitHub Token (למאגר פרטי)', 'wc-order-upsale' ); ?></label></th>
 						<td>
+							<?php $token_const = $this->token_is_constant(); ?>
 							<input type="password" id="wcse-token" name="token" value="" class="regular-text" autocomplete="off"
+								<?php disabled( $token_const ); ?>
 								placeholder="<?php echo '' !== $settings['token'] ? '••••••••••••' : ''; ?>">
 							<p class="description">
-								<?php esc_html_e( 'אופציונלי. נדרש רק אם המאגר פרטי. הרשאת "Contents: read" מספיקה.', 'wc-order-upsale' ); ?>
-								<?php if ( '' !== $settings['token'] ) : ?>
-									<br><?php esc_html_e( 'Token שמור כבר קיים. השאירו ריק כדי לשמור אותו, או הזינו חדש כדי להחליף.', 'wc-order-upsale' ); ?>
+								<?php if ( $token_const ) : ?>
+									<?php esc_html_e( 'ה-Token מוגדר דרך הקבוע WC_STORE_ENHANCER_GITHUB_TOKEN ב-wp-config.php (מומלץ) ולכן לא ניתן לעריכה כאן.', 'wc-order-upsale' ); ?>
+								<?php else : ?>
+									<?php esc_html_e( 'אופציונלי. נדרש רק אם המאגר פרטי. הרשאת "Contents: read" מספיקה.', 'wc-order-upsale' ); ?>
+									<?php if ( '' !== $settings['token'] ) : ?>
+										<br><?php esc_html_e( 'Token שמור כבר קיים. השאירו ריק כדי לשמור אותו, או הזינו חדש כדי להחליף.', 'wc-order-upsale' ); ?>
+									<?php endif; ?>
+									<br><?php esc_html_e( 'לאבטחה מיטבית ניתן להגדיר במקום זאת: define(\'WC_STORE_ENHANCER_GITHUB_TOKEN\', \'...\'); בקובץ wp-config.php.', 'wc-order-upsale' ); ?>
 								<?php endif; ?>
 							</p>
 						</td>

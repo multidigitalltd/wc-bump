@@ -6,10 +6,11 @@ defined( 'ABSPATH' ) || exit;
  * Beautiful Variations — turns WooCommerce variable-product attribute dropdowns
  * into clickable pill / color swatches on the single product page.
  *
- * The native <select> is preserved (only visually hidden) so WooCommerce's own
- * variation JS — price updates, availability, add-to-cart validation — keeps
- * working untouched. The swatch buttons simply mirror the select and dispatch a
- * change event when clicked.
+ * The native <select> is preserved so WooCommerce's own variation JS — price
+ * updates, availability, add-to-cart validation — keeps working untouched. Once
+ * the JS takes over, the swatch group becomes an accessible ARIA radiogroup and
+ * the <select> is hidden from both the layout and the accessibility tree; with
+ * JS off, the swatches stay hidden and the native <select> remains the control.
  */
 class WC_Order_Upsale_Variation_Swatches {
 
@@ -51,6 +52,13 @@ class WC_Order_Upsale_Variation_Swatches {
 			return;
 		}
 
+		// Only variable products render variation swatches — don't load assets on
+		// simple/other product pages (conditional, per-page loading).
+		$product = wc_get_product( get_queried_object_id() );
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
+			return;
+		}
+
 		wp_enqueue_style(
 			'wc-order-upsale-swatches',
 			WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
@@ -62,7 +70,10 @@ class WC_Order_Upsale_Variation_Swatches {
 			WC_ORDER_UPSALE_URL . 'assets/js/variation-swatches.js',
 			[ 'jquery' ],
 			WC_ORDER_UPSALE_VERSION,
-			true
+			[
+				'in_footer' => true,
+				'strategy'  => 'defer',
+			]
 		);
 
 		$size = max( 24, min( 120, (int) self::get_settings()['size'] ) );
@@ -357,19 +368,19 @@ class WC_Order_Upsale_Variation_Swatches {
 				<h2><?php esc_html_e( 'תצוגה מקדימה', 'wc-order-upsale' ); ?></h2>
 				<div class="wcse-preview" style="--wcse-size:<?php echo esc_attr( $size ); ?>px;background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:20px;max-width:520px" dir="rtl">
 					<p style="margin:0 0 6px;font-weight:600"><?php esc_html_e( 'אורך', 'wc-order-upsale' ); ?></p>
-					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
+					<div class="wcse-swatches wcse-ready wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
 						<?php foreach ( [ '90cm', '86cm', '83cm', '80cm', '78cm', '74cm', '70cm' ] as $i => $v ) : ?>
 							<button type="button" class="wcse-swatch wcse-swatch--label<?php echo 0 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
 						<?php endforeach; ?>
 					</div>
 					<p style="margin:16px 0 6px;font-weight:600"><?php esc_html_e( 'מידה', 'wc-order-upsale' ); ?></p>
-					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
+					<div class="wcse-swatches wcse-ready wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-label">
 						<?php foreach ( [ '44', '42', '40', '38', '36', '34' ] as $i => $v ) : ?>
 							<button type="button" class="wcse-swatch wcse-swatch--label<?php echo 2 === $i ? ' is-selected' : ''; ?>"><span class="wcse-swatch-text"><?php echo esc_html( $v ); ?></span></button>
 						<?php endforeach; ?>
 					</div>
 					<p style="margin:16px 0 6px;font-weight:600"><?php esc_html_e( 'צבע', 'wc-order-upsale' ); ?></p>
-					<div class="wcse-swatches wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-color">
+					<div class="wcse-swatches wcse-ready wcse-shape-<?php echo esc_attr( $settings['shape'] ); ?> wcse-is-color">
 						<?php foreach ( [ '#111111', '#1e2a5a' ] as $i => $c ) : ?>
 							<button type="button" class="wcse-swatch wcse-swatch--color<?php echo 0 === $i ? ' is-selected' : ''; ?>" style="--wcse-color:<?php echo esc_attr( $c ); ?>"><span class="wcse-swatch-color"></span></button>
 						<?php endforeach; ?>

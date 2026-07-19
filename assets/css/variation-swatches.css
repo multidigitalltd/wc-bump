@@ -24,6 +24,12 @@
 	font-family: inherit;
 }
 
+/* Progressive enhancement: stay hidden until JS marks the group ready, so a
+ * no-JS visitor keeps the fully accessible native <select>. */
+.wcse-swatches:not(.wcse-ready) {
+	display: none !important;
+}
+
 /* Hide the native <select> once JS has taken over (graceful fallback if not). */
 .wcse-select-hidden {
 	position: absolute !important;
@@ -94,11 +100,18 @@
 }
 
 .wcse-swatches .wcse-swatch.wcse-disabled {
-	opacity: .4 !important;
 	cursor: not-allowed !important;
 	text-decoration: line-through !important;
 	background: #f4f4f6 !important;
-	color: #9a9aa2 !important;
+	color: #6b6b73 !important;
+	border-color: #e4e4e8 !important;
+}
+
+/* Honour reduced-motion preferences (WCAG 2.3.3 / prefers-reduced-motion). */
+@media ( prefers-reduced-motion: reduce ) {
+	.wcse-swatches .wcse-swatch {
+		transition: none !important;
+	}
 }
 
 .wcse-swatch-text {
