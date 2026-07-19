@@ -205,13 +205,24 @@ class WC_Order_Upsale_Backinstock {
 		check_ajax_referer( 'wcse_bis', 'nonce' );
 
 		// Throttle the public endpoint: max 10 submissions per IP per 10 minutes.
-		$ip  = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
-		$key = 'wcse_bis_rl_' . md5( $ip );
-		$hits = (int) get_transient( $key );
-		if ( $hits >= 10 ) {
+		// Prefer an atomic increment on a persistent object cache (Redis/Memcached);
+		// fall back to a transient when none is present.
+		$limit  = 10;
+		$window = 10 * MINUTE_IN_SECONDS;
+		$ip     = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$key    = 'wcse_bis_rl_' . md5( $ip );
+
+		if ( function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache() ) {
+			wp_cache_add( $key, 0, 'wcse_bis', $window );
+			$hits = (int) wp_cache_incr( $key, 1, 'wcse_bis' );
+		} else {
+			$hits = (int) get_transient( $key ) + 1;
+			set_transient( $key, $hits, $window );
+		}
+
+		if ( $hits > $limit ) {
 			wp_send_json_error( [ 'message' => __( 'יותר מדי בקשות. נסו שוב מאוחר יותר.', 'wc-order-upsale' ) ] );
 		}
-		set_transient( $key, $hits + 1, 10 * MINUTE_IN_SECONDS );
 
 		$name    = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$email   = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
@@ -317,8 +328,15 @@ class WC_Order_Upsale_Backinstock {
 		}
 
 		$product = wc_get_product( $variation_id > 0 ? $variation_id : $product_id );
-		$name    = $product ? $product->get_name() : ( '#' . $product_id );
-		$url     = $product_id ? get_permalink( $product_id ) : home_url( '/' );
+
+		// It may have sold out again during the delay/between batches — don't send
+		// a false "back in stock" mail; leave the rows pending for the next restock.
+		if ( ! $product || ! $product->is_in_stock() ) {
+			return;
+		}
+
+		$name = $product->get_name();
+		$url  = $product_id ? get_permalink( $product_id ) : home_url( '/' );
 
 		/* translators: %s: product name */
 		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
