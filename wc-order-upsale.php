@@ -2,7 +2,7 @@
 /**
  * Plugin Name: משפר חנויות ווקומרס
  * Description: משפר חנויות ווקומרס — אפסייל בצ'קאאוט + הצגת וריאציות המוצר ככפתורים יפים (מידה, אורך, צבע).
- * Version: 1.10.3
+ * Version: 1.10.4
  * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -15,7 +15,19 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.10.3' );
+// Guard against a second copy of this plugin being active (e.g. installed under
+// a different folder name). Loading it twice would fatally "Cannot redeclare
+// class"; instead the duplicate copy bails out and shows an admin notice.
+if ( defined( 'WC_ORDER_UPSALE_VERSION' ) ) {
+	add_action( 'admin_notices', function () {
+		echo '<div class="notice notice-error"><p>'
+			. esc_html__( 'משפר המרות ווקומרס מותקן פעמיים (שני עותקים בתיקיות שונות). מחקו את העותק הכפול והשאירו אחד בלבד כדי למנוע שגיאה.', 'wc-order-upsale' )
+			. '</p></div>';
+	} );
+	return;
+}
+
+define( 'WC_ORDER_UPSALE_VERSION', '1.10.4' );
 define( 'WC_ORDER_UPSALE_FILE', __FILE__ );
 define( 'WC_ORDER_UPSALE_BASENAME', plugin_basename( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
