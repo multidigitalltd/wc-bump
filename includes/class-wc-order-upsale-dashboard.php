@@ -22,12 +22,12 @@ class WC_Order_Upsale_Dashboard {
 
 	public function add_menu(): void {
 		add_menu_page(
-			__( 'משפר חנויות ווקומרס', 'wc-order-upsale' ),
-			__( 'משפר חנויות', 'wc-order-upsale' ),
+			__( 'משפר המרות ווקומרס', 'wc-order-upsale' ),
+			__( 'משפר המרות', 'wc-order-upsale' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render' ],
-			'dashicons-store',
+			'dashicons-chart-line',
 			56
 		);
 
@@ -72,7 +72,7 @@ class WC_Order_Upsale_Dashboard {
 		$update  = class_exists( 'WC_Order_Upsale_Updater' ) ? WC_Order_Upsale_Updater::status() : null;
 		?>
 		<div class="wrap wcse-dashboard">
-			<h1><?php esc_html_e( 'משפר חנויות ווקומרס', 'wc-order-upsale' ); ?></h1>
+			<h1><?php esc_html_e( 'משפר המרות ווקומרס', 'wc-order-upsale' ); ?></h1>
 			<p class="description" style="max-width:760px">
 				<?php esc_html_e( 'לוח הבקרה של התוסף. כאן מפעילים או מכבים כל מודול ומגיעים להגדרות שלו. מודולים נוספים יתווספו בהמשך.', 'wc-order-upsale' ); ?>
 			</p>
@@ -152,8 +152,29 @@ class WC_Order_Upsale_Dashboard {
 					</button>
 				</p>
 			</form>
+
+			<?php $email = self::service_email(); ?>
+			<div class="wcse-cta">
+				<div class="wcse-cta-icon"><span class="dashicons dashicons-hammer"></span></div>
+				<div class="wcse-cta-body">
+					<h2><?php esc_html_e( 'צריכים פיתוח מותאם לחנות?', 'wc-order-upsale' ); ?></h2>
+					<p><?php esc_html_e( 'צוות Multi Digital מפתח פיצ׳רים, אינטגרציות ואוטומציות ל-WooCommerce לפי הצורך שלכם. נשמח להצעת מחיר.', 'wc-order-upsale' ); ?></p>
+					<p class="wcse-cta-actions">
+						<a class="button button-primary" href="<?php echo esc_url( 'mailto:' . $email . '?subject=' . rawurlencode( __( 'הזמנת פיתוח — משפר המרות ווקומרס', 'wc-order-upsale' ) ) ); ?>">
+							<?php esc_html_e( 'להזמנת פיתוח במייל', 'wc-order-upsale' ); ?>
+						</a>
+						<a class="button" href="https://m-d.co.il" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'לאתר שלנו', 'wc-order-upsale' ); ?></a>
+						<span class="wcse-cta-email"><?php echo esc_html( $email ); ?></span>
+					</p>
+				</div>
+			</div>
 		</div>
 		<?php
+	}
+
+	/** Service e-mail shown in the "order development" box (filterable). */
+	private static function service_email(): string {
+		return sanitize_email( apply_filters( 'wc_store_enhancer_service_email', 'multidigitalltd@gmail.com' ) );
 	}
 
 	private function inline_css(): string {
@@ -180,6 +201,12 @@ class WC_Order_Upsale_Dashboard {
 		.wcse-switch input:checked+.wcse-switch-track::after{inset-inline-start:23px}
 		.wcse-switch input:focus-visible+.wcse-switch-track{outline:2px solid #2271b1;outline-offset:2px}
 		.wcse-switch-text{font-weight:600;font-size:13px}
+		.wcse-cta{display:flex;gap:16px;align-items:flex-start;margin-top:26px;padding:20px 22px;background:linear-gradient(135deg,#1e2a5a,#2b3f8c);border-radius:12px;color:#fff}
+		.wcse-cta-icon .dashicons{font-size:30px;width:30px;height:30px;color:#cdd6ff}
+		.wcse-cta-body h2{margin:0 0 6px;color:#fff;font-size:18px}
+		.wcse-cta-body p{margin:0 0 12px;color:#dfe4fb;max-width:640px}
+		.wcse-cta-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+		.wcse-cta-email{font-family:monospace;font-size:13px;color:#cdd6ff}
 		';
 	}
 }

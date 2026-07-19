@@ -114,6 +114,17 @@
 	}
 }
 
+/* ── Archive shortcode ([wc_color_swatches]) — compact, read-only colours ── */
+.wcse-archive {
+	--wcse-size: 24px;
+	gap: 6px;
+	margin: 6px 0;
+}
+
+.wcse-archive span.wcse-swatch {
+	cursor: default !important;
+}
+
 .wcse-swatch-text {
 	display: block;
 	pointer-events: none;
