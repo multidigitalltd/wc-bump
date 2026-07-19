@@ -24,8 +24,7 @@ class WC_Order_Upsale_Delivery {
 		add_filter( 'wc_store_enhancer_settings_tabs',              [ $this, 'register_settings_tab' ], 15 );
 		add_action( 'admin_post_save_wc_store_enhancer_delivery',   [ $this, 'save_settings' ] );
 
-		// Frontend.
-		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+		// Frontend (styles are inlined once by get_estimate_html — no external asset).
 		add_shortcode( 'wc_delivery_estimate', [ $this, 'shortcode' ] );
 
 		if ( $this->is_enabled() ) {
@@ -78,23 +77,6 @@ class WC_Order_Upsale_Delivery {
 
 	/* ─────────────────────────── Frontend ───────────────────────────── */
 
-	public function enqueue_assets(): void {
-		if ( ! $this->is_enabled() ) {
-			return;
-		}
-
-		wp_register_style( 'wcse-edd', false, [], WC_ORDER_UPSALE_VERSION );
-		wp_add_inline_style(
-			'wcse-edd',
-			'.wcse-edd{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:15px;line-height:1.4;font-family:inherit;color:inherit}'
-			. '.wcse-edd-date{font-weight:700}'
-		);
-
-		if ( function_exists( 'is_product' ) && is_product() ) {
-			wp_enqueue_style( 'wcse-edd' );
-		}
-	}
-
 	/** Product-summary hook callback: print the estimate for the current product. */
 	public function render_on_product(): void {
 		$product = $GLOBALS['product'] ?? null;
@@ -106,21 +88,21 @@ class WC_Order_Upsale_Delivery {
 
 	/** Shortcode [wc_delivery_estimate]. */
 	public function shortcode( $atts ): string {
-		if ( ! $this->is_enabled() ) {
-			return '';
-		}
-		wp_enqueue_style( 'wcse-edd' );
 		return $this->get_estimate_html();
 	}
 
-	/** Build the estimate markup (already escaped). */
+	/** Build the estimate markup (already escaped), or '' when no estimate applies. */
 	public function get_estimate_html(): string {
 		if ( ! $this->is_enabled() ) {
 			return '';
 		}
 
 		$settings = self::get_settings();
-		[ $from, $to ] = $this->window( $settings );
+		$window   = $this->window( $settings );
+		if ( null === $window ) {
+			return ''; // No working weekday configured — show nothing rather than a fake date.
+		}
+		[ $from, $to ] = $window;
 
 		$format = '' !== $settings['date_format'] ? $settings['date_format'] : 'l, j.n';
 		$label  = '' !== $settings['label'] ? $settings['label'] : __( 'אספקה משוערת:', 'wc-order-upsale' );
@@ -132,60 +114,85 @@ class WC_Order_Upsale_Delivery {
 			$dates = sprintf( __( '%1$s – %2$s', 'wc-order-upsale' ), wp_date( $format, $from ), wp_date( $format, $to ) );
 		}
 
-		return '<p class="wcse-edd"><span class="wcse-edd-icon" aria-hidden="true">🚚</span> '
+		// Inline the tiny stylesheet once per request so it is styled regardless of
+		// where the shortcode/hook runs (product page, archive, Elementor page…),
+		// even when expanded after wp_head().
+		static $printed_css = false;
+		$css = '';
+		if ( ! $printed_css ) {
+			$printed_css = true;
+			$css = '<style id="wcse-edd-css">.wcse-edd{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:15px;line-height:1.4;font-family:inherit;color:inherit}.wcse-edd-date{font-weight:700}</style>';
+		}
+
+		return $css . '<p class="wcse-edd"><span class="wcse-edd-icon" aria-hidden="true">🚚</span> '
 			. '<span class="wcse-edd-label">' . esc_html( $label ) . '</span> '
 			. '<span class="wcse-edd-date">' . esc_html( (string) $dates ) . '</span></p>';
 	}
 
+	/** True when a timestamp falls on a non-working weekday or a holiday. */
+	private function is_off_day( int $timestamp, array $off_days, array $holidays ): bool {
+		return in_array( (int) wp_date( 'w', $timestamp ), $off_days, true )
+			|| in_array( wp_date( 'Y-m-d', $timestamp ), $holidays, true );
+	}
+
 	/**
-	 * Compute the [earliest, latest] delivery timestamps.
+	 * Compute the [earliest, latest] delivery timestamps, or null when no working
+	 * weekday is configured (every weekday marked off).
 	 *
-	 * @return array{0:int,1:int}
+	 * @return array{0:int,1:int}|null
 	 */
-	private function window( array $settings ): array {
+	private function window( array $settings ): ?array {
+		$off_days = $settings['off_days'];
+		$holidays = $settings['holidays'];
+
+		// With no working weekday at all there is no valid delivery date.
+		if ( count( array_unique( array_intersect( $off_days, range( 0, 6 ) ) ) ) >= 7 ) {
+			return null;
+		}
+
 		$min = max( 0, (int) $settings['min_days'] );
 		$max = max( $min, (int) $settings['max_days'] );
 
 		// Real UTC timestamp; wp_date() applies the site timezone when formatting.
 		$start = time();
 
-		// Optional cut-off: once past it, orders ship the next day.
+		// Optional cut-off: once past it, treat the order as placed on the next
+		// working day — advance through excluded weekdays/holidays first.
 		if ( '' !== $settings['cutoff'] ) {
 			$cutoff = max( 0, min( 23, (int) $settings['cutoff'] ) );
 			if ( (int) wp_date( 'G', $start ) >= $cutoff ) {
-				$start += DAY_IN_SECONDS;
+				$start = $this->roll_to_business_day( $start + DAY_IN_SECONDS, $off_days, $holidays );
 			}
 		}
 
-		$from = $this->add_business_days( $start, $min, $settings['off_days'], $settings['holidays'] );
-		$to   = $this->add_business_days( $start, $max, $settings['off_days'], $settings['holidays'] );
+		$from = $this->add_business_days( $start, $min, $off_days, $holidays );
+		$to   = $this->add_business_days( $start, $max, $off_days, $holidays );
 
 		return [ $from, $to ];
 	}
 
+	/** Roll a timestamp forward to the next working day (skipping off-days/holidays). */
+	private function roll_to_business_day( int $ts, array $off_days, array $holidays ): int {
+		$guard = 0;
+		while ( $this->is_off_day( $ts, $off_days, $holidays ) && $guard++ < 366 ) {
+			$ts += DAY_IN_SECONDS;
+		}
+		return $ts;
+	}
+
 	/** Advance a timestamp by N business days, skipping off-days and holidays. */
 	private function add_business_days( int $start, int $days, array $off_days, array $holidays ): int {
-		$ts = $start;
-
-		$is_off = function ( int $timestamp ) use ( $off_days, $holidays ): bool {
-			return in_array( (int) wp_date( 'w', $timestamp ), $off_days, true )
-				|| in_array( wp_date( 'Y-m-d', $timestamp ), $holidays, true );
-		};
-
 		if ( $days <= 0 ) {
-			// Same-day option: roll forward to the next business day if today is off.
-			$guard = 0;
-			while ( $is_off( $ts ) && $guard++ < 30 ) {
-				$ts += DAY_IN_SECONDS;
-			}
-			return $ts;
+			// Same-day option: roll forward to the next working day if today is off.
+			return $this->roll_to_business_day( $start, $off_days, $holidays );
 		}
 
+		$ts    = $start;
 		$added = 0;
 		$guard = 0;
 		while ( $added < $days && $guard++ < 366 ) {
 			$ts += DAY_IN_SECONDS;
-			if ( ! $is_off( $ts ) ) {
+			if ( ! $this->is_off_day( $ts, $off_days, $holidays ) ) {
 				$added++;
 			}
 		}
@@ -214,10 +221,16 @@ class WC_Order_Upsale_Delivery {
 		$min = max( 0, absint( $_POST['min_days'] ?? 0 ) );
 		$max = max( $min, absint( $_POST['max_days'] ?? 0 ) );
 
-		$off_days = array_values( array_filter(
+		$off_days = array_values( array_unique( array_filter(
 			array_map( 'intval', (array) wp_unslash( $_POST['off_days'] ?? [] ) ),
 			static fn( $d ) => $d >= 0 && $d <= 6
-		) );
+		) ) );
+
+		// A schedule with no working weekday can't produce a real date — fall back
+		// to the Israeli default (Fri/Sat off) so an estimate is always possible.
+		if ( count( $off_days ) >= 7 ) {
+			$off_days = [ 5, 6 ];
+		}
 
 		$cutoff_raw = $_POST['cutoff'] ?? '';
 		$cutoff     = ( '' === $cutoff_raw || ! is_numeric( $cutoff_raw ) ) ? '' : (string) max( 0, min( 23, absint( $cutoff_raw ) ) );
@@ -359,7 +372,6 @@ class WC_Order_Upsale_Delivery {
 				</table>
 
 				<h2><?php esc_html_e( 'תצוגה מקדימה', 'wc-order-upsale' ); ?></h2>
-				<style>.wcse-edd{display:flex;align-items:center;gap:8px;margin:0;font-size:15px}.wcse-edd-date{font-weight:700}</style>
 				<div style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:16px 20px;max-width:520px" dir="rtl">
 					<?php echo $this->get_estimate_html(); // phpcs:ignore WordPress.Security.EscapeOutput ?>
 				</div>
