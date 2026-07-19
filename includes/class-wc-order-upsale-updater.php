@@ -172,7 +172,12 @@ class WC_Order_Upsale_Updater {
 		}
 
 		$download = '';
-		if ( ! empty( $body->assets ) && is_array( $body->assets ) ) {
+
+		// For a private repo (token set) the source zipball is the reliable
+		// download: it accepts the Authorization header and 302-redirects to an
+		// already-authenticated codeload URL. Release *assets* on github.com do
+		// not, so only prefer a .zip asset for public (token-less) repos.
+		if ( '' === $token && ! empty( $body->assets ) && is_array( $body->assets ) ) {
 			foreach ( $body->assets as $asset ) {
 				if ( ! empty( $asset->browser_download_url ) && '.zip' === strtolower( substr( (string) $asset->name, -4 ) ) ) {
 					$download = $asset->browser_download_url;
