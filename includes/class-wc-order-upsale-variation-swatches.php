@@ -86,6 +86,14 @@ class WC_Order_Upsale_Variation_Swatches {
 				wp_enqueue_script( 'wc-order-upsale-swatches' );
 			}
 		}
+
+		// Product archives are the home of the [wc_color_swatches] shortcode, and
+		// that shortcode renders after wp_head(). Enqueue the stylesheet here so
+		// it is reliably printed in the <head> rather than depending on late
+		// enqueue when the shortcode runs inside the loop.
+		if ( function_exists( 'is_shop' ) && ( is_shop() || is_product_taxonomy() ) ) {
+			wp_enqueue_style( 'wc-order-upsale-swatches' );
+		}
 	}
 
 	/**
