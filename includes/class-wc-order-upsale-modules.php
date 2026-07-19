@@ -50,6 +50,26 @@ class WC_Order_Upsale_Modules {
 				'benefit'        => __( 'תאריך אספקה מדויק העלה המרה בצ׳קאאוט ב-13%–25% במבחני A/B; 75% מהקונים מושפעים ממנו ו-40% לא יקנו בלעדיו (Baymard/Narvar).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://baymard.com/blog/shipping-speed-vs-delivery-date',
 			],
+			'recently_viewed'    => [
+				'name'           => __( 'נצפו לאחרונה', 'wc-order-upsale' ),
+				'description'    => __( 'מעקב אחר מוצרים שנצפו והצגתם דרך Loop Grid של Elementor (עם העיצוב שלכם) או בשורטקוד.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'recent',
+				'icon'           => 'backup',
+				'default'        => true,
+				'benefit'        => __( 'החזרת מבקרים למוצרים שכבר גילו מגדילה גילוי וקנייה חוזרת — לאמזון ~35% מההכנסות מהמלצות (McKinsey).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://www.firney.com/news-and-insights/ai-product-recommendations-from-amazons-35-revenue-model-to-your-e-commerce-platform',
+			],
+			'back_in_stock'      => [
+				'name'           => __( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ),
+				'description'    => __( 'טופס איסוף שם + טלפון + אישור דיוור על מוצר/וריאציה שאזלו, עם התראת מייל לחנות כשחוזר למלאי.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'backinstock',
+				'icon'           => 'bell',
+				'default'        => true,
+				'benefit'        => __( 'התראות "חזר למלאי" הן מהסוגים הכי ממירים (20%–35% המרה) ומשחזרות מכירות שאבדו על מידות/צבעים שאזלו (Klaviyo/MarketingSherpa).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://marketingsherpa.com/article/case-study/backinstock-alert-emails-achieve-2245',
+			],
 		];
 	}
 

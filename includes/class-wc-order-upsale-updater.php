@@ -48,8 +48,8 @@ class WC_Order_Upsale_Updater {
 		add_filter( 'http_request_args',                     [ $this, 'authorize_download' ], 10, 2 );
 		add_action( 'upgrader_process_complete',             [ $this, 'clear_cache' ] );
 
-		// Admin: settings tab on the shared page + manual "check now".
-		add_filter( 'wc_store_enhancer_settings_tabs',            [ $this, 'register_settings_tab' ], 20 );
+		// Admin: settings tab on the shared page (kept last) + manual "check now".
+		add_filter( 'wc_store_enhancer_settings_tabs',            [ $this, 'register_settings_tab' ], 90 );
 		add_action( 'admin_post_wc_store_enhancer_save_update',   [ $this, 'save_settings' ] );
 		add_action( 'admin_post_wc_store_enhancer_check_update',  [ $this, 'manual_check' ] );
 	}
