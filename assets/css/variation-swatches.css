@@ -1,0 +1,158 @@
+/**
+ * Beautiful Variations — frontend swatch styles.
+ *
+ * Themes style <button> elements aggressively (full-width, coloured, tall), so
+ * every layout/appearance property below is force-reset with !important and a
+ * high-specificity `.wcse-swatches .wcse-swatch` selector. Only the font family
+ * is inherited from the theme; colours use a clean, self-contained palette so
+ * the swatches look like the design regardless of the active theme.
+ */
+
+.wcse-swatches {
+	--wcse-size: 44px;
+	--wcse-border: #d3d3db;
+	--wcse-border-hover: #8a8a99;
+	--wcse-ink: #2b2b33;
+	--wcse-selected: #111111;
+	display: flex !important;
+	flex-wrap: wrap;
+	gap: 10px;
+	align-items: center;
+	margin: 8px 0 6px;
+	padding: 0;
+	list-style: none;
+	font-family: inherit;
+}
+
+/* Progressive enhancement: stay hidden until JS marks the group ready, so a
+ * no-JS visitor keeps the fully accessible native <select>. */
+.wcse-swatches:not(.wcse-ready) {
+	display: none !important;
+}
+
+/* Hide the native <select> once JS has taken over (graceful fallback if not). */
+.wcse-select-hidden {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	margin: -1px !important;
+	padding: 0 !important;
+	border: 0 !important;
+	overflow: hidden !important;
+	clip: rect(0 0 0 0) !important;
+	white-space: nowrap !important;
+}
+
+/* Hard reset against theme button styles, then apply our own look. */
+.wcse-swatches .wcse-swatch {
+	box-sizing: border-box !important;
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	/* Never grow/shrink to the row width — content-sized, several per line. */
+	flex: 0 0 auto !important;
+	width: auto !important;
+	min-width: var(--wcse-size) !important;
+	max-width: none !important;
+	height: var(--wcse-size) !important;
+	min-height: 0 !important;
+	padding: 0 15px !important;
+	margin: 0 !important;
+	float: none !important;
+	background: #fff !important;
+	color: var(--wcse-ink) !important;
+	border: 1.5px solid var(--wcse-border) !important;
+	border-radius: 999px !important;
+	box-shadow: none !important;
+	font-family: inherit !important;
+	font-size: 14px !important;
+	font-weight: 600 !important;
+	line-height: 1 !important;
+	letter-spacing: normal !important;
+	text-transform: none !important;
+	text-decoration: none !important;
+	text-shadow: none !important;
+	cursor: pointer !important;
+	transition: border-color .15s ease, background-color .15s ease, color .15s ease !important;
+	-webkit-appearance: none !important;
+	appearance: none !important;
+}
+
+.wcse-shape-rounded .wcse-swatch { border-radius: 14px !important; }
+.wcse-shape-square  .wcse-swatch { border-radius: 6px !important; }
+
+.wcse-swatches .wcse-swatch:hover {
+	border-color: var(--wcse-border-hover) !important;
+	background: #fff !important;
+	color: var(--wcse-ink) !important;
+}
+
+.wcse-swatches .wcse-swatch:focus-visible {
+	outline: 2px solid var(--wcse-selected) !important;
+	outline-offset: 2px !important;
+}
+
+/* Unmistakable selected state: solid dark fill. */
+.wcse-swatches .wcse-swatch.is-selected {
+	background: var(--wcse-selected) !important;
+	border-color: var(--wcse-selected) !important;
+	color: #fff !important;
+}
+
+.wcse-swatches .wcse-swatch.wcse-disabled {
+	cursor: not-allowed !important;
+	text-decoration: line-through !important;
+	background: #f4f4f6 !important;
+	color: #6b6b73 !important;
+	border-color: #e4e4e8 !important;
+}
+
+/* Honour reduced-motion preferences (WCAG 2.3.3 / prefers-reduced-motion). */
+@media ( prefers-reduced-motion: reduce ) {
+	.wcse-swatches .wcse-swatch {
+		transition: none !important;
+	}
+}
+
+.wcse-swatch-text {
+	display: block;
+	pointer-events: none;
+}
+
+/* ── Colour swatches ─────────────────────────────────────────────────
+ * Keyed on the per-button .wcse-swatch--color modifier (not the group), so an
+ * unresolved colour value still renders as a normal text pill. */
+
+.wcse-swatches .wcse-swatch--color {
+	width: var(--wcse-size) !important;
+	min-width: 0 !important;
+	padding: 0 !important;
+	position: relative !important;
+	background: #fff !important;
+}
+
+.wcse-swatch--color .wcse-swatch-color {
+	display: block;
+	width: calc(var(--wcse-size) - 12px);
+	height: calc(var(--wcse-size) - 12px);
+	border-radius: inherit;
+	background: var(--wcse-color, #ccc);
+	/* >=3:1 boundary on white so light/white swatches stay perceivable
+	 * (WCAG 2.2 AA 1.4.11 Non-text Contrast). */
+	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .42);
+	pointer-events: none;
+}
+
+/* Disabled colour swatch: the circle itself must signal unavailability, since
+ * line-through does not read on an empty colour dot. */
+.wcse-swatches .wcse-swatch--color.wcse-disabled .wcse-swatch-color {
+	opacity: .35 !important;
+	filter: grayscale( 60% ) !important;
+}
+
+/* Colour swatch selected: keep the swatch colour, add a clear ring. */
+.wcse-swatches .wcse-swatch--color.is-selected {
+	background: #fff !important;
+	border-color: var(--wcse-selected) !important;
+	box-shadow: 0 0 0 2px var(--wcse-selected) !important;
+}
