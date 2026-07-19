@@ -59,7 +59,7 @@
 				action: 'wcse_bis_subscribe',
 				nonce: cfg.nonce,
 				name: $f.find( '[name="name"]' ).val(),
-				phone: $f.find( '[name="phone"]' ).val(),
+				email: $f.find( '[name="email"]' ).val(),
 				consent: $f.find( '[name="consent"]' ).is( ':checked' ) ? 1 : 0,
 				product_id: $f.find( '[name="product_id"]' ).val(),
 				variation_id: $f.find( '[name="variation_id"]' ).val()

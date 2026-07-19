@@ -62,7 +62,7 @@ class WC_Order_Upsale_Modules {
 			],
 			'back_in_stock'      => [
 				'name'           => __( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ),
-				'description'    => __( 'טופס איסוף שם + טלפון + אישור דיוור על מוצר/וריאציה שאזלו, עם התראת מייל לחנות כשחוזר למלאי.', 'wc-order-upsale' ),
+				'description'    => __( 'טופס איסוף שם + אימייל + אישור דיוור על מוצר/וריאציה שאזלו, עם מייל אוטומטי ללקוח כשחוזר למלאי.', 'wc-order-upsale' ),
 				'settings_slug'  => 'wc-store-enhancer-settings',
 				'settings_tab'   => 'backinstock',
 				'icon'           => 'bell',

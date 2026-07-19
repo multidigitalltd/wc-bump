@@ -6,9 +6,9 @@ defined( 'ABSPATH' ) || exit;
  * Back-in-Stock notifications.
  *
  * On an out-of-stock product (or out-of-stock variation) shows a "notify me"
- * form collecting name + phone + marketing consent. Subscribers are stored in a
- * dedicated table; when the product/variation returns to stock the shop is
- * alerted by e-mail with the waiting list so it can reach out. An admin tab
+ * form collecting name + email + marketing consent. Subscribers are stored in a
+ * dedicated table; when the product/variation returns to stock every waiting
+ * customer is e-mailed automatically with a link to the product. An admin tab
  * lists subscribers and exports them to CSV.
  *
  * Research: back-in-stock notifications are among the highest-converting
@@ -19,7 +19,7 @@ class WC_Order_Upsale_Backinstock {
 
 	const OPTION          = 'wc_store_enhancer_bis';
 	const DB_VERSION_OPT  = 'wc_store_enhancer_bis_db_version';
-	const DB_VERSION      = '1.0.0';
+	const DB_VERSION      = '1.1.0';
 
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
@@ -59,13 +59,14 @@ class WC_Order_Upsale_Backinstock {
 			product_id BIGINT UNSIGNED NOT NULL,
 			variation_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			name VARCHAR(190) NOT NULL DEFAULT '',
-			phone VARCHAR(40) NOT NULL DEFAULT '',
+			email VARCHAR(190) NOT NULL DEFAULT '',
 			consent TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			notified_at DATETIME NULL DEFAULT NULL,
 			PRIMARY KEY  (id),
 			KEY product_id (product_id),
 			KEY variation_id (variation_id),
+			KEY email (email),
 			KEY notified_at (notified_at)
 		) {$charset};";
 
@@ -83,11 +84,11 @@ class WC_Order_Upsale_Backinstock {
 
 	public static function get_settings(): array {
 		return wp_parse_args( (array) get_option( self::OPTION, [] ), [
-			'button_text'  => '',
-			'title'        => '',
-			'consent_text' => '',
-			'success_text' => '',
-			'notify_email' => '',
+			'button_text'   => '',
+			'title'         => '',
+			'consent_text'  => '',
+			'success_text'  => '',
+			'email_subject' => '',
 		] );
 	}
 
@@ -99,11 +100,6 @@ class WC_Order_Upsale_Backinstock {
 	private function text( string $key, string $default ): string {
 		$value = (string) ( self::get_settings()[ $key ] ?? '' );
 		return '' !== $value ? $value : $default;
-	}
-
-	private function admin_email(): string {
-		$email = self::get_settings()['notify_email'];
-		return is_email( $email ) ? $email : (string) get_option( 'admin_email' );
 	}
 
 	/* ─────────────────────────── Frontend ───────────────────────────── */
@@ -179,8 +175,8 @@ class WC_Order_Upsale_Backinstock {
 					<input type="text" id="<?php echo esc_attr( $uid ); ?>-name" name="name" autocomplete="name" required>
 				</p>
 				<p>
-					<label for="<?php echo esc_attr( $uid ); ?>-phone"><?php esc_html_e( 'טלפון', 'wc-order-upsale' ); ?></label>
-					<input type="tel" id="<?php echo esc_attr( $uid ); ?>-phone" name="phone" autocomplete="tel" required>
+					<label for="<?php echo esc_attr( $uid ); ?>-email"><?php esc_html_e( 'אימייל', 'wc-order-upsale' ); ?></label>
+					<input type="email" id="<?php echo esc_attr( $uid ); ?>-email" name="email" autocomplete="email" required>
 				</p>
 				<p>
 					<label class="wcse-bis-consent">
@@ -203,13 +199,13 @@ class WC_Order_Upsale_Backinstock {
 		check_ajax_referer( 'wcse_bis', 'nonce' );
 
 		$name    = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
-		$phone   = $this->sanitize_phone( wp_unslash( $_POST['phone'] ?? '' ) );
+		$email   = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
 		$consent = ! empty( $_POST['consent'] );
 		$product = absint( $_POST['product_id'] ?? 0 );
 		$variant = absint( $_POST['variation_id'] ?? 0 );
 
-		if ( '' === $name || '' === $phone ) {
-			wp_send_json_error( [ 'message' => __( 'נא למלא שם וטלפון.', 'wc-order-upsale' ) ] );
+		if ( '' === $name || ! is_email( $email ) ) {
+			wp_send_json_error( [ 'message' => __( 'נא למלא שם וכתובת אימייל תקינה.', 'wc-order-upsale' ) ] );
 		}
 		if ( ! $consent ) {
 			wp_send_json_error( [ 'message' => __( 'יש לאשר קבלת דיוור.', 'wc-order-upsale' ) ] );
@@ -221,12 +217,12 @@ class WC_Order_Upsale_Backinstock {
 		global $wpdb;
 		$table = self::table();
 
-		// Skip an identical pending subscription (same phone, product, variation).
+		// Skip an identical pending subscription (same email, product, variation).
 		$exists = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$table} WHERE product_id = %d AND variation_id = %d AND phone = %s AND notified_at IS NULL LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL
+			"SELECT id FROM {$table} WHERE product_id = %d AND variation_id = %d AND email = %s AND notified_at IS NULL LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL
 			$product,
 			$variant,
-			$phone
+			$email
 		) );
 
 		if ( ! $exists ) {
@@ -236,7 +232,7 @@ class WC_Order_Upsale_Backinstock {
 					'product_id'   => $product,
 					'variation_id' => $variant,
 					'name'         => $name,
-					'phone'        => $phone,
+					'email'        => $email,
 					'consent'      => 1,
 					'created_at'   => current_time( 'mysql' ),
 				],
@@ -247,10 +243,6 @@ class WC_Order_Upsale_Backinstock {
 		wp_send_json_success( [
 			'message' => $this->text( 'success_text', __( 'תודה! נעדכן אתכם כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) ),
 		] );
-	}
-
-	private function sanitize_phone( string $phone ): string {
-		return trim( (string) preg_replace( '/[^0-9+\-() ]/', '', $phone ) );
 	}
 
 	/* ─────────────────────── Restock notification ───────────────────── */
@@ -270,8 +262,8 @@ class WC_Order_Upsale_Backinstock {
 	}
 
 	/**
-	 * Alert the shop that a restocked item has people waiting, then mark those
-	 * rows notified so the alert is not repeated.
+	 * E-mail every waiting customer that a restocked item is available again,
+	 * then mark those rows notified so the mail is not sent twice.
 	 */
 	private function notify_waiting( int $product_id, int $variation_id ): void {
 		global $wpdb;
@@ -279,12 +271,12 @@ class WC_Order_Upsale_Backinstock {
 
 		if ( $variation_id > 0 ) {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, phone FROM {$table} WHERE variation_id = %d AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
+				"SELECT id, name, email FROM {$table} WHERE variation_id = %d AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
 				$variation_id
 			) );
 		} else {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, phone FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
+				"SELECT id, name, email FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
 				$product_id
 			) );
 		}
@@ -295,35 +287,40 @@ class WC_Order_Upsale_Backinstock {
 
 		$product = wc_get_product( $variation_id > 0 ? $variation_id : $product_id );
 		$name    = $product ? $product->get_name() : ( '#' . $product_id );
-		$edit    = $product_id ? get_edit_post_link( $product_id, '' ) : '';
+		$url     = $product_id ? get_permalink( $product_id ) : home_url( '/' );
 
-		$lines = [];
-		foreach ( $rows as $row ) {
-			$lines[] = sprintf( '• %s — %s', $row->name, $row->phone );
-		}
-
-		$subject = sprintf(
+		$subject = $this->text( 'email_subject', sprintf(
 			/* translators: %s: product name */
-			__( '[משפר המרות] %s חזר למלאי — לקוחות ממתינים', 'wc-order-upsale' ),
+			__( '%s חזר למלאי!', 'wc-order-upsale' ),
 			$name
-		);
-		$body = sprintf(
-			/* translators: 1: count, 2: product name */
-			__( '%1$d לקוחות ביקשו עדכון על "%2$s" שחזר עכשיו למלאי:', 'wc-order-upsale' ),
-			count( $rows ),
-			$name
-		) . "\n\n" . implode( "\n", $lines );
-		if ( $edit ) {
-			$body .= "\n\n" . __( 'עריכת המוצר:', 'wc-order-upsale' ) . ' ' . $edit;
+		) );
+		$headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+
+		$notified = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_email( $row->email ) ) {
+				$notified[] = (int) $row->id; // Skip and clear invalid addresses.
+				continue;
+			}
+
+			$body  = '<p>' . esc_html( sprintf( __( 'שלום %s,', 'wc-order-upsale' ), $row->name ) ) . '</p>';
+			$body .= '<p>' . esc_html( sprintf( __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name ) ) . '</p>';
+			$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
+				. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
+
+			if ( wp_mail( $row->email, $subject, $body, $headers ) ) {
+				$notified[] = (int) $row->id;
+			}
 		}
 
-		wp_mail( $this->admin_email(), $subject, $body );
+		if ( empty( $notified ) ) {
+			return;
+		}
 
-		$ids = array_map( static fn( $r ) => (int) $r->id, $rows );
-		$in  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$in = implode( ',', array_fill( 0, count( $notified ), '%d' ) );
 		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 			"UPDATE {$table} SET notified_at = %s WHERE id IN ({$in})",
-			array_merge( [ current_time( 'mysql' ) ], $ids )
+			array_merge( [ current_time( 'mysql' ) ], $notified )
 		) );
 	}
 
@@ -347,11 +344,11 @@ class WC_Order_Upsale_Backinstock {
 		}
 
 		update_option( self::OPTION, [
-			'button_text'  => sanitize_text_field( wp_unslash( $_POST['button_text'] ?? '' ) ),
-			'title'        => sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
-			'consent_text' => sanitize_text_field( wp_unslash( $_POST['consent_text'] ?? '' ) ),
-			'success_text' => sanitize_text_field( wp_unslash( $_POST['success_text'] ?? '' ) ),
-			'notify_email' => sanitize_email( wp_unslash( $_POST['notify_email'] ?? '' ) ),
+			'button_text'   => sanitize_text_field( wp_unslash( $_POST['button_text'] ?? '' ) ),
+			'title'         => sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
+			'consent_text'  => sanitize_text_field( wp_unslash( $_POST['consent_text'] ?? '' ) ),
+			'success_text'  => sanitize_text_field( wp_unslash( $_POST['success_text'] ?? '' ) ),
+			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? '' ) ),
 		] );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=backinstock&saved=1' ) );
@@ -384,7 +381,7 @@ class WC_Order_Upsale_Backinstock {
 
 		global $wpdb;
 		$table = self::table();
-		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, phone, consent, created_at, notified_at FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, email, consent, created_at, notified_at FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 
 		nocache_headers();
 		header( 'Content-Type: text/csv; charset=utf-8' );
@@ -392,7 +389,7 @@ class WC_Order_Upsale_Backinstock {
 
 		$out = fopen( 'php://output', 'w' );
 		fputs( $out, "\xEF\xBB\xBF" ); // UTF-8 BOM for Excel.
-		fputcsv( $out, [ 'product_id', 'variation_id', 'name', 'phone', 'consent', 'created_at', 'notified_at' ] );
+		fputcsv( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at' ] );
 		foreach ( (array) $rows as $row ) {
 			fputcsv( $out, $row );
 		}
@@ -405,12 +402,12 @@ class WC_Order_Upsale_Backinstock {
 
 		global $wpdb;
 		$table = self::table();
-		$rows  = $wpdb->get_results( "SELECT id, product_id, variation_id, name, phone, created_at, notified_at FROM {$table} ORDER BY created_at DESC LIMIT 200", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$rows  = $wpdb->get_results( "SELECT id, product_id, variation_id, name, email, created_at, notified_at FROM {$table} ORDER BY created_at DESC LIMIT 200", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 		$total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 		?>
 		<div class="wcse-admin">
 			<p class="description" style="max-width:720px">
-				<?php esc_html_e( 'טופס "עדכנו אותי כשחוזר למלאי" מוצג אוטומטית על מוצר/וריאציה שאזלו. כשהמוצר חוזר למלאי — נשלח מייל לחנות עם רשימת הממתינים.', 'wc-order-upsale' ); ?>
+				<?php esc_html_e( 'טופס "עדכנו אותי כשחוזר למלאי" (שם + אימייל + אישור דיוור) מוצג אוטומטית על מוצר/וריאציה שאזלו. כשהמוצר חוזר למלאי — נשלח מייל אוטומטי לכל הנרשמים עם קישור למוצר. אין צורך בשורטקוד.', 'wc-order-upsale' ); ?>
 			</p>
 
 			<?php if ( ! $this->is_enabled() ) : ?>
@@ -448,10 +445,10 @@ class WC_Order_Upsale_Backinstock {
 						<td><input type="text" id="wcse-bis-success" name="success_text" value="<?php echo esc_attr( $settings['success_text'] ); ?>" placeholder="<?php esc_attr_e( 'תודה! נעדכן אתכם כשהמוצר יחזור למלאי.', 'wc-order-upsale' ); ?>" class="large-text"></td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="wcse-bis-email"><?php esc_html_e( 'מייל לקבלת התראות', 'wc-order-upsale' ); ?></label></th>
+						<th scope="row"><label for="wcse-bis-subject"><?php esc_html_e( 'נושא מייל ללקוח', 'wc-order-upsale' ); ?></label></th>
 						<td>
-							<input type="email" id="wcse-bis-email" name="notify_email" value="<?php echo esc_attr( $settings['notify_email'] ); ?>" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>" class="regular-text">
-							<p class="description"><?php esc_html_e( 'לכתובת זו יישלח מייל עם רשימת הממתינים כשמוצר חוזר למלאי. ברירת מחדל: מייל המנהל.', 'wc-order-upsale' ); ?></p>
+							<input type="text" id="wcse-bis-subject" name="email_subject" value="<?php echo esc_attr( $settings['email_subject'] ); ?>" placeholder="<?php esc_attr_e( '{שם המוצר} חזר למלאי!', 'wc-order-upsale' ); ?>" class="large-text">
+							<p class="description"><?php esc_html_e( 'נושא המייל שנשלח ללקוח כשהמוצר חוזר למלאי. אם ריק — ייווצר אוטומטית לפי שם המוצר.', 'wc-order-upsale' ); ?></p>
 						</td>
 					</tr>
 				</table>
@@ -474,7 +471,7 @@ class WC_Order_Upsale_Backinstock {
 					<tr>
 						<th><?php esc_html_e( 'מוצר', 'wc-order-upsale' ); ?></th>
 						<th><?php esc_html_e( 'שם', 'wc-order-upsale' ); ?></th>
-						<th><?php esc_html_e( 'טלפון', 'wc-order-upsale' ); ?></th>
+						<th><?php esc_html_e( 'אימייל', 'wc-order-upsale' ); ?></th>
 						<th><?php esc_html_e( 'תאריך', 'wc-order-upsale' ); ?></th>
 						<th><?php esc_html_e( 'סטטוס', 'wc-order-upsale' ); ?></th>
 						<th></th>
@@ -493,7 +490,7 @@ class WC_Order_Upsale_Backinstock {
 							<tr>
 								<td><?php echo esc_html( $pname ); ?> <span class="description">#<?php echo esc_html( (string) $pid ); ?></span></td>
 								<td><?php echo esc_html( $row['name'] ); ?></td>
-								<td><?php echo esc_html( $row['phone'] ); ?></td>
+								<td><?php echo esc_html( $row['email'] ); ?></td>
 								<td><?php echo esc_html( $row['created_at'] ); ?></td>
 								<td>
 									<?php echo $row['notified_at']
