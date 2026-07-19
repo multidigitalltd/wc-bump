@@ -209,6 +209,15 @@ class WC_Order_Upsale_Dashboard {
 							<div class="wcse-module-main">
 								<h2><?php echo esc_html( $module['name'] ); ?></h2>
 								<p><?php echo esc_html( $module['description'] ); ?></p>
+								<?php if ( ! empty( $module['benefit'] ) ) : ?>
+									<p class="wcse-module-benefit">
+										<span class="wcse-benefit-icon" aria-hidden="true">📊</span>
+										<span><?php echo esc_html( $module['benefit'] ); ?></span>
+										<?php if ( ! empty( $module['benefit_source'] ) ) : ?>
+											<a href="<?php echo esc_url( $module['benefit_source'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'מקור', 'wc-order-upsale' ); ?></a>
+										<?php endif; ?>
+									</p>
+								<?php endif; ?>
 								<div class="wcse-module-actions">
 									<label class="wcse-switch">
 										<input type="checkbox" name="modules[]" value="<?php echo esc_attr( $id ); ?>" <?php checked( $enabled ); ?>>
@@ -270,6 +279,9 @@ class WC_Order_Upsale_Dashboard {
 		.wcse-module-main{flex:1}
 		.wcse-module-main h2{margin:0 0 6px;font-size:16px}
 		.wcse-module-main p{margin:0 0 14px;color:#50575e}
+		.wcse-module-benefit{display:flex;gap:8px;align-items:flex-start;margin:0 0 14px !important;padding:10px 12px;background:#eef4fb;border:1px solid #cfe0f3;border-radius:8px;color:#1d3c63 !important;font-size:13px;line-height:1.5}
+		.wcse-benefit-icon{flex:0 0 auto}
+		.wcse-module-benefit a{white-space:nowrap}
 		.wcse-module-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 		.wcse-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
 		.wcse-switch input{position:absolute;opacity:0;width:0;height:0}
