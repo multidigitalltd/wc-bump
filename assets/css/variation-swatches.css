@@ -114,6 +114,19 @@
 	}
 }
 
+/* ── Archive shortcode ([wc_color_swatches]) — compact, read-only colours ──
+ * Two classes so the compact size beats the global `.wcse-swatches{--wcse-size}`
+ * inline rule (which is emitted after this file at equal specificity). */
+.wcse-swatches.wcse-archive {
+	--wcse-size: 24px;
+	gap: 6px;
+	margin: 6px 0;
+}
+
+.wcse-archive span.wcse-swatch {
+	cursor: default !important;
+}
+
 .wcse-swatch-text {
 	display: block;
 	pointer-events: none;

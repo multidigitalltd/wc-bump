@@ -16,18 +16,27 @@ class WC_Order_Upsale_Variation_Swatches {
 
 	const OPTION = 'wc_store_enhancer_swatches';
 
-	/** Hook suffix of the settings page, captured so asset loading is parent-agnostic. */
-	private string $hook_suffix = '';
-
 	public function __construct() {
 		// Frontend — append swatches after each variation dropdown.
 		add_filter( 'woocommerce_dropdown_variation_attribute_options_html', [ $this, 'render_swatches' ], 20, 2 );
 		add_action( 'wp_enqueue_scripts',                                    [ $this, 'enqueue_assets' ] );
 
-		// Admin settings page.
-		add_action( 'admin_menu',                                    [ $this, 'add_menu' ] );
-		add_action( 'admin_enqueue_scripts',                         [ $this, 'admin_assets' ] );
+		// Shortcode: show only a product's colour swatches (e.g. on shop/archive cards).
+		add_shortcode( 'wc_color_swatches', [ $this, 'color_swatches_shortcode' ] );
+
+		// Admin settings — registered as a tab on the shared "הגדרות" page.
+		add_filter( 'wc_store_enhancer_settings_tabs',               [ $this, 'register_settings_tab' ], 10 );
 		add_action( 'admin_post_save_wc_store_enhancer_swatches',    [ $this, 'save_settings' ] );
+	}
+
+	/** Register the "וריאציות יפות" tab on the shared settings page. */
+	public function register_settings_tab( array $tabs ): array {
+		$tabs[] = [
+			'id'       => 'swatches',
+			'label'    => __( 'וריאציות יפות', 'wc-order-upsale' ),
+			'callback' => [ $this, 'render_settings_tab' ],
+		];
+		return $tabs;
 	}
 
 	/* ─────────────────────────── Settings ───────────────────────────── */
@@ -48,24 +57,20 @@ class WC_Order_Upsale_Variation_Swatches {
 	/* ─────────────────────────── Frontend ───────────────────────────── */
 
 	public function enqueue_assets(): void {
-		if ( ! function_exists( 'is_product' ) || ! is_product() || ! $this->is_enabled() ) {
+		if ( ! $this->is_enabled() ) {
 			return;
 		}
 
-		// Only variable products render variation swatches — don't load assets on
-		// simple/other product pages (conditional, per-page loading).
-		$product = wc_get_product( get_queried_object_id() );
-		if ( ! $product || ! $product->is_type( 'variable' ) ) {
-			return;
-		}
-
-		wp_enqueue_style(
+		// Register (not enqueue) so both the single-product page and the archive
+		// shortcode can pull the assets in on demand — nothing is output until a
+		// handle is actually enqueued.
+		wp_register_style(
 			'wc-order-upsale-swatches',
 			WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
 			[],
 			WC_ORDER_UPSALE_VERSION
 		);
-		wp_enqueue_script(
+		wp_register_script(
 			'wc-order-upsale-swatches',
 			WC_ORDER_UPSALE_URL . 'assets/js/variation-swatches.js',
 			[ 'jquery' ],
@@ -78,6 +83,23 @@ class WC_Order_Upsale_Variation_Swatches {
 
 		$size = max( 24, min( 120, (int) self::get_settings()['size'] ) );
 		wp_add_inline_style( 'wc-order-upsale-swatches', '.wcse-swatches{--wcse-size:' . $size . 'px}' );
+
+		// Full interactive swatches load only on variable-product pages.
+		if ( function_exists( 'is_product' ) && is_product() ) {
+			$product = wc_get_product( get_queried_object_id() );
+			if ( $product && $product->is_type( 'variable' ) ) {
+				wp_enqueue_style( 'wc-order-upsale-swatches' );
+				wp_enqueue_script( 'wc-order-upsale-swatches' );
+			}
+		}
+
+		// Product archives are the home of the [wc_color_swatches] shortcode, and
+		// that shortcode renders after wp_head(). Enqueue the stylesheet here so
+		// it is reliably printed in the <head> rather than depending on late
+		// enqueue when the shortcode runs inside the loop.
+		if ( function_exists( 'is_shop' ) && ( is_shop() || is_product_taxonomy() ) ) {
+			wp_enqueue_style( 'wc-order-upsale-swatches' );
+		}
 	}
 
 	/**
@@ -177,6 +199,123 @@ class WC_Order_Upsale_Variation_Swatches {
 		);
 	}
 
+	/* ─────────────────────────── Archive shortcode ──────────────────── */
+
+	/**
+	 * Shortcode [wc_color_swatches] — renders only a product's colour swatches,
+	 * for shop/category archive cards. Read-only; each swatch links to the
+	 * product with that colour preselected.
+	 *
+	 * Attributes:
+	 *   id   — product ID (defaults to the current loop product)
+	 *   size — swatch size in px (defaults to a compact archive size)
+	 *   link — "no" (default) shows plain colour dots; "yes" links each colour to
+	 *          the product with it preselected. Keep "no" when the loop card is
+	 *          itself a link (e.g. Elementor Loop Grid), since an <a> inside an
+	 *          <a> is invalid HTML and breaks the grid markup.
+	 *
+	 * @param array|string $atts Shortcode attributes.
+	 */
+	public function color_swatches_shortcode( $atts ): string {
+		if ( ! $this->is_enabled() ) {
+			return '';
+		}
+
+		$atts = shortcode_atts( [
+			'id'   => 0,
+			'size' => 0,
+			'link' => 'no',
+		], $atts, 'wc_color_swatches' );
+
+		$product = absint( $atts['id'] )
+			? wc_get_product( absint( $atts['id'] ) )
+			: ( $GLOBALS['product'] ?? null );
+		if ( ! $product instanceof WC_Product ) {
+			$product = wc_get_product( get_the_ID() );
+		}
+		if ( ! $product instanceof WC_Product || ! $product->is_type( 'variable' ) ) {
+			return '';
+		}
+
+		// Find the first colour attribute among the product's variation attributes.
+		$attribute = '';
+		$options   = [];
+		foreach ( $product->get_variation_attributes() as $name => $opts ) {
+			if ( $this->is_color_attribute( $name, wc_attribute_label( $name, $product ) ) ) {
+				$attribute = $name;
+				$options   = $opts;
+				break;
+			}
+		}
+		if ( '' === $attribute || empty( $options ) ) {
+			return '';
+		}
+
+		$do_link   = 'no' !== strtolower( (string) $atts['link'] );
+		$permalink = (string) get_permalink( $product->get_id() );
+		$query_key = 'attribute_' . sanitize_title( $attribute );
+
+		$items  = '';
+		$labels = [];
+
+		if ( taxonomy_exists( $attribute ) ) {
+			$terms = wc_get_product_terms( $product->get_id(), $attribute, [ 'fields' => 'all' ] );
+			foreach ( $terms as $term ) {
+				if ( ! in_array( $term->slug, $options, true ) ) {
+					continue;
+				}
+				$name     = (string) apply_filters( 'woocommerce_variation_option_name', $term->name, $term, $attribute, $product );
+				$color    = $this->resolve_color( $term->name, $term->slug, $term->term_id );
+				$items   .= $this->archive_swatch( $term->slug, $name, $color, $do_link, $permalink, $query_key );
+				$labels[] = $name;
+			}
+		} else {
+			foreach ( $options as $option ) {
+				$name     = (string) apply_filters( 'woocommerce_variation_option_name', $option, null, $attribute, $product );
+				$color    = $this->resolve_color( (string) $option, sanitize_title( $option ), 0 );
+				$items   .= $this->archive_swatch( (string) $option, $name, $color, $do_link, $permalink, $query_key );
+				$labels[] = $name;
+			}
+		}
+
+		if ( '' === $items ) {
+			return '';
+		}
+
+		wp_enqueue_style( 'wc-order-upsale-swatches' );
+
+		$size  = absint( $atts['size'] );
+		$style = $size ? ' style="--wcse-size:' . esc_attr( (string) max( 14, min( 80, $size ) ) ) . 'px"' : '';
+
+		/* translators: %s: comma-separated colour names */
+		$group_label = sprintf( __( 'צבעים זמינים: %s', 'wc-order-upsale' ), implode( ', ', $labels ) );
+
+		return '<div class="wcse-swatches wcse-ready wcse-is-color wcse-archive" role="group" aria-label="'
+			. esc_attr( $group_label ) . '"' . $style . '>' . $items . '</div>';
+	}
+
+	/** One read-only archive colour swatch (link when enabled, otherwise a span). */
+	private function archive_swatch( string $value, string $label, string $color, bool $link, string $permalink, string $query_key ): string {
+		if ( '' !== $color ) {
+			$modifier = ' wcse-swatch--color';
+			$inner    = '<span class="wcse-swatch-color" aria-hidden="true"></span>';
+			$style    = ' style="--wcse-color:' . esc_attr( $color ) . '"';
+		} else {
+			$modifier = ' wcse-swatch--label';
+			$inner    = '<span class="wcse-swatch-text">' . esc_html( $label ) . '</span>';
+			$style    = '';
+		}
+
+		if ( $link && '' !== $permalink ) {
+			$href = esc_url( add_query_arg( [ $query_key => $value ], $permalink ) );
+			return '<a class="wcse-swatch' . $modifier . '" href="' . $href . '"'
+				. ' aria-label="' . esc_attr( $label ) . '" title="' . esc_attr( $label ) . '"' . $style . '>' . $inner . '</a>';
+		}
+
+		return '<span class="wcse-swatch' . $modifier . '" role="img"'
+			. ' aria-label="' . esc_attr( $label ) . '" title="' . esc_attr( $label ) . '"' . $style . '>' . $inner . '</span>';
+	}
+
 	/* ─────────────────────────── Colour helpers ─────────────────────── */
 
 	/** Whether an attribute should render as colour swatches (by name). */
@@ -267,34 +406,7 @@ class WC_Order_Upsale_Variation_Swatches {
 		];
 	}
 
-	/* ─────────────────────────── Admin page ─────────────────────────── */
-
-	public function add_menu(): void {
-		$parent = class_exists( 'WC_Order_Upsale_Dashboard' )
-			? WC_Order_Upsale_Dashboard::MENU_SLUG
-			: 'woocommerce';
-
-		$this->hook_suffix = (string) add_submenu_page(
-			$parent,
-			__( 'וריאציות יפות', 'wc-order-upsale' ),
-			__( 'וריאציות יפות', 'wc-order-upsale' ),
-			'manage_woocommerce',
-			'wc-store-enhancer-swatches',
-			[ $this, 'render_page' ]
-		);
-	}
-
-	public function admin_assets( string $hook ): void {
-		if ( $hook !== $this->hook_suffix ) {
-			return;
-		}
-		wp_enqueue_style(
-			'wc-order-upsale-swatches',
-			WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
-			[],
-			WC_ORDER_UPSALE_VERSION
-		);
-	}
+	/* ─────────────────────────── Settings tab ───────────────────────── */
 
 	public function save_settings(): void {
 		if ( ! check_admin_referer( 'wc_store_enhancer_swatches_save', 'wc_store_enhancer_swatches_nonce' ) ) {
@@ -312,19 +424,33 @@ class WC_Order_Upsale_Variation_Swatches {
 			'size'  => max( 24, min( 120, absint( $_POST['size'] ?? 44 ) ) ),
 		] );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wc-store-enhancer-swatches&saved=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=swatches&saved=1' ) );
 		exit;
 	}
 
-	public function render_page(): void {
+	/** Tab body rendered inside the shared settings page (no outer .wrap/h1). */
+	public function render_settings_tab(): void {
 		$settings = self::get_settings();
 		$size     = max( 24, min( 120, (int) $settings['size'] ) );
 		?>
-		<div class="wrap wcse-admin">
-			<h1><?php esc_html_e( 'וריאציות יפות', 'wc-order-upsale' ); ?></h1>
+		<div class="wcse-admin">
 			<p class="description" style="max-width:720px">
 				<?php esc_html_e( 'הפיצ\'ר ממיר אוטומטית את תפריטי הבחירה של וריאציות המוצר (מידה, אורך, צבע וכו\') לכפתורים עגולים ויפים בעמוד המוצר. תכונות "צבע" מזוהות אוטומטית ומוצגות כעיגולי צבע.', 'wc-order-upsale' ); ?>
 			</p>
+
+				<div class="notice notice-info inline" style="max-width:720px">
+					<p>
+						<strong><?php esc_html_e( 'שורטקוד לארכיון:', 'wc-order-upsale' ); ?></strong>
+						<code>[wc_color_swatches]</code>
+						<?php esc_html_e( '— מציג רק את עיגולי הצבע של המוצר (לשימוש בכרטיס מוצר בארכיון/קטגוריה). כברירת מחדל תצוגה בלבד.', 'wc-order-upsale' ); ?>
+						<br>
+						<?php esc_html_e( 'אפשרויות: ', 'wc-order-upsale' ); ?>
+						<code>[wc_color_swatches size="22"]</code>
+						<br>
+						<?php esc_html_e( 'להפיכת כל צבע לקישור למוצר (רק אם כרטיס המוצר עצמו אינו קישור — למשל ב-Elementor Loop Grid עם קישור על כל הכרטיס זה עלול לשבור את העמוד):', 'wc-order-upsale' ); ?>
+						<code>[wc_color_swatches link="yes"]</code>
+					</p>
+				</div>
 
 			<?php if ( isset( $_GET['saved'] ) ) : ?>
 				<div class="notice notice-success is-dismissible">

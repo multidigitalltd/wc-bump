@@ -31,7 +31,8 @@ class WC_Order_Upsale_Modules {
 			'variation_swatches' => [
 				'name'          => __( 'וריאציות יפות', 'wc-order-upsale' ),
 				'description'   => __( 'המרת תפריטי הווריאציות (מידה, אורך, צבע) לכפתורים עגולים ועיגולי צבע יפים בעמוד המוצר.', 'wc-order-upsale' ),
-				'settings_slug' => 'wc-store-enhancer-swatches',
+				'settings_slug' => 'wc-store-enhancer-settings',
+				'settings_tab'  => 'swatches',
 				'icon'          => 'art',
 				'default'       => true,
 			],
@@ -86,12 +87,16 @@ class WC_Order_Upsale_Modules {
 		update_option( self::OPTION, $states );
 	}
 
-	/** Admin URL of a module's settings page. */
+	/** Admin URL of a module's settings page (with its tab, when applicable). */
 	public static function settings_url( string $id ): string {
 		$def = self::definitions()[ $id ] ?? null;
 		if ( ! $def ) {
 			return '';
 		}
-		return admin_url( 'admin.php?page=' . $def['settings_slug'] );
+		$args = [ 'page' => $def['settings_slug'] ];
+		if ( ! empty( $def['settings_tab'] ) ) {
+			$args['tab'] = $def['settings_tab'];
+		}
+		return add_query_arg( $args, admin_url( 'admin.php' ) );
 	}
 }

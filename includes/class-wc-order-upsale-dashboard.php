@@ -11,23 +11,29 @@ defined( 'ABSPATH' ) || exit;
  */
 class WC_Order_Upsale_Dashboard {
 
-	const MENU_SLUG = 'wc-store-enhancer';
+	const MENU_SLUG     = 'wc-store-enhancer';
+	const SETTINGS_SLUG = 'wc-store-enhancer-settings';
+
+	/** Hook suffix of the shared settings page, captured for asset loading. */
+	private string $settings_hook = '';
 
 	public function __construct() {
 		// Priority 9 so the parent menu exists before modules add their submenus (priority 10).
 		add_action( 'admin_menu',                                     [ $this, 'add_menu' ], 9 );
+		// Priority 100 so the shared "הגדרות" page is registered last in the submenu order.
+		add_action( 'admin_menu',                                     [ $this, 'add_settings_menu' ], 100 );
 		add_action( 'admin_post_wc_store_enhancer_save_modules',      [ $this, 'save_modules' ] );
 		add_action( 'admin_enqueue_scripts',                          [ $this, 'assets' ] );
 	}
 
 	public function add_menu(): void {
 		add_menu_page(
-			__( 'משפר חנויות ווקומרס', 'wc-order-upsale' ),
-			__( 'משפר חנויות', 'wc-order-upsale' ),
+			__( 'משפר המרות ווקומרס', 'wc-order-upsale' ),
+			__( 'משפר המרות', 'wc-order-upsale' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render' ],
-			'dashicons-store',
+			'dashicons-chart-line',
 			56
 		);
 
@@ -41,14 +47,86 @@ class WC_Order_Upsale_Dashboard {
 		);
 	}
 
+	/** The shared, tabbed "הגדרות" page — registered last so it sits at the bottom. */
+	public function add_settings_menu(): void {
+		$this->settings_hook = (string) add_submenu_page(
+			self::MENU_SLUG,
+			__( 'הגדרות', 'wc-order-upsale' ),
+			__( 'הגדרות', 'wc-order-upsale' ),
+			'manage_woocommerce',
+			self::SETTINGS_SLUG,
+			[ $this, 'render_settings' ]
+		);
+	}
+
 	public function assets( string $hook ): void {
-		if ( 'toplevel_page_' . self::MENU_SLUG !== $hook ) {
+		if ( 'toplevel_page_' . self::MENU_SLUG === $hook ) {
+			// Inline-only stylesheet: register a src-less handle and attach CSS to it.
+			wp_register_style( 'wcse-dashboard', false, [], WC_ORDER_UPSALE_VERSION );
+			wp_enqueue_style( 'wcse-dashboard' );
+			wp_add_inline_style( 'wcse-dashboard', $this->inline_css() );
 			return;
 		}
-		// Inline-only stylesheet: register a src-less handle and attach CSS to it.
-		wp_register_style( 'wcse-dashboard', false, [], WC_ORDER_UPSALE_VERSION );
-		wp_enqueue_style( 'wcse-dashboard' );
-		wp_add_inline_style( 'wcse-dashboard', $this->inline_css() );
+
+		// Settings page needs the swatch stylesheet for the live preview.
+		if ( '' !== $this->settings_hook && $hook === $this->settings_hook ) {
+			wp_enqueue_style(
+				'wc-order-upsale-swatches',
+				WC_ORDER_UPSALE_URL . 'assets/css/variation-swatches.css',
+				[],
+				WC_ORDER_UPSALE_VERSION
+			);
+		}
+	}
+
+	/** Render the shared settings page with a tab per registered module. */
+	public function render_settings(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( 'Unauthorized' );
+		}
+
+		/**
+		 * Modules register their settings tabs here.
+		 *
+		 * @param array<int,array{id:string,label:string,callback:callable}> $tabs
+		 */
+		$tabs = (array) apply_filters( 'wc_store_enhancer_settings_tabs', [] );
+		$tabs = array_values( array_filter( $tabs, static fn( $t ) => ! empty( $t['id'] ) && is_callable( $t['callback'] ?? null ) ) );
+
+		if ( empty( $tabs ) ) {
+			echo '<div class="wrap"><h1>' . esc_html__( 'הגדרות', 'wc-order-upsale' ) . '</h1><p>'
+				. esc_html__( 'אין הגדרות זמינות.', 'wc-order-upsale' ) . '</p></div>';
+			return;
+		}
+
+		$ids       = wp_list_pluck( $tabs, 'id' );
+		$requested = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$active    = in_array( $requested, $ids, true ) ? $requested : $ids[0];
+		?>
+		<div class="wrap wcse-settings">
+			<h1><?php esc_html_e( 'הגדרות — משפר המרות', 'wc-order-upsale' ); ?></h1>
+
+			<nav class="nav-tab-wrapper wp-clearfix" aria-label="<?php esc_attr_e( 'לשוניות הגדרות', 'wc-order-upsale' ); ?>">
+				<?php foreach ( $tabs as $tab ) : ?>
+					<a class="nav-tab <?php echo $tab['id'] === $active ? 'nav-tab-active' : ''; ?>"
+						href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=' . $tab['id'] ) ); ?>">
+						<?php echo esc_html( $tab['label'] ); ?>
+					</a>
+				<?php endforeach; ?>
+			</nav>
+
+			<div class="wcse-settings-tab" style="margin-top:16px">
+				<?php
+				foreach ( $tabs as $tab ) {
+					if ( $tab['id'] === $active ) {
+						call_user_func( $tab['callback'] );
+						break;
+					}
+				}
+				?>
+			</div>
+		</div>
+		<?php
 	}
 
 	public function save_modules(): void {
@@ -72,7 +150,7 @@ class WC_Order_Upsale_Dashboard {
 		$update  = class_exists( 'WC_Order_Upsale_Updater' ) ? WC_Order_Upsale_Updater::status() : null;
 		?>
 		<div class="wrap wcse-dashboard">
-			<h1><?php esc_html_e( 'משפר חנויות ווקומרס', 'wc-order-upsale' ); ?></h1>
+			<h1><?php esc_html_e( 'משפר המרות ווקומרס', 'wc-order-upsale' ); ?></h1>
 			<p class="description" style="max-width:760px">
 				<?php esc_html_e( 'לוח הבקרה של התוסף. כאן מפעילים או מכבים כל מודול ומגיעים להגדרות שלו. מודולים נוספים יתווספו בהמשך.', 'wc-order-upsale' ); ?>
 			</p>
@@ -113,7 +191,7 @@ class WC_Order_Upsale_Dashboard {
 					<span class="wcse-update-pill wcse-update-current"><?php esc_html_e( 'מעודכן לגרסה האחרונה', 'wc-order-upsale' ); ?></span>
 				<?php endif; ?>
 				<?php if ( $can_update ) : ?>
-					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=wc-store-enhancer-updates' ) ); ?>">
+					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=updates' ) ); ?>">
 						<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
 					</a>
 				<?php endif; ?>
@@ -152,8 +230,29 @@ class WC_Order_Upsale_Dashboard {
 					</button>
 				</p>
 			</form>
+
+			<?php $email = self::service_email(); ?>
+			<div class="wcse-cta">
+				<div class="wcse-cta-icon"><span class="dashicons dashicons-hammer"></span></div>
+				<div class="wcse-cta-body">
+					<h2><?php esc_html_e( 'צריכים פיתוח מותאם לחנות?', 'wc-order-upsale' ); ?></h2>
+					<p><?php esc_html_e( 'צוות Multi Digital מפתח פיצ׳רים, אינטגרציות ואוטומציות ל-WooCommerce לפי הצורך שלכם. נשמח להצעת מחיר.', 'wc-order-upsale' ); ?></p>
+					<p class="wcse-cta-actions">
+						<a class="button button-primary" href="<?php echo esc_url( 'mailto:' . $email . '?subject=' . rawurlencode( __( 'הזמנת פיתוח — משפר המרות ווקומרס', 'wc-order-upsale' ) ) ); ?>">
+							<?php esc_html_e( 'להזמנת פיתוח במייל', 'wc-order-upsale' ); ?>
+						</a>
+						<a class="button" href="https://m-d.co.il" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'לאתר שלנו', 'wc-order-upsale' ); ?></a>
+						<span class="wcse-cta-email"><?php echo esc_html( $email ); ?></span>
+					</p>
+				</div>
+			</div>
 		</div>
 		<?php
+	}
+
+	/** Service e-mail shown in the "order development" box (filterable). */
+	private static function service_email(): string {
+		return sanitize_email( apply_filters( 'wc_store_enhancer_service_email', 'service@multidigital.co.il' ) );
 	}
 
 	private function inline_css(): string {
@@ -180,6 +279,12 @@ class WC_Order_Upsale_Dashboard {
 		.wcse-switch input:checked+.wcse-switch-track::after{inset-inline-start:23px}
 		.wcse-switch input:focus-visible+.wcse-switch-track{outline:2px solid #2271b1;outline-offset:2px}
 		.wcse-switch-text{font-weight:600;font-size:13px}
+		.wcse-cta{display:flex;gap:16px;align-items:flex-start;margin-top:26px;padding:20px 22px;background:linear-gradient(135deg,#1e2a5a,#2b3f8c);border-radius:12px;color:#fff}
+		.wcse-cta-icon .dashicons{font-size:30px;width:30px;height:30px;color:#cdd6ff}
+		.wcse-cta-body h2{margin:0 0 6px;color:#fff;font-size:18px}
+		.wcse-cta-body p{margin:0 0 12px;color:#dfe4fb;max-width:640px}
+		.wcse-cta-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+		.wcse-cta-email{font-family:monospace;font-size:13px;color:#cdd6ff}
 		';
 	}
 }
