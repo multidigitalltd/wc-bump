@@ -19,7 +19,8 @@ class WC_Order_Upsale_Backinstock {
 
 	const OPTION          = 'wc_store_enhancer_bis';
 	const DB_VERSION_OPT  = 'wc_store_enhancer_bis_db_version';
-	const DB_VERSION      = '1.1.0';
+	const DB_VERSION      = '1.2.0';
+	const BATCH           = 25;
 
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
@@ -28,6 +29,9 @@ class WC_Order_Upsale_Backinstock {
 		add_action( 'admin_post_save_wc_store_enhancer_bis',        [ $this, 'save_settings' ] );
 		add_action( 'admin_post_wc_store_enhancer_bis_export',      [ $this, 'export_csv' ] );
 		add_action( 'admin_post_wc_store_enhancer_bis_delete',      [ $this, 'delete_subscriber' ] );
+
+		// Background sender — always registered so scheduled events still fire.
+		add_action( 'wcse_bis_notify', [ $this, 'process_notifications' ], 10, 2 );
 
 		if ( $this->is_enabled() ) {
 			add_action( 'wp_enqueue_scripts',                       [ $this, 'enqueue_assets' ] );
@@ -67,7 +71,8 @@ class WC_Order_Upsale_Backinstock {
 			KEY product_id (product_id),
 			KEY variation_id (variation_id),
 			KEY email (email),
-			KEY notified_at (notified_at)
+			KEY notified_at (notified_at),
+			KEY created_at (created_at)
 		) {$charset};";
 
 		dbDelta( $sql );
@@ -145,6 +150,7 @@ class WC_Order_Upsale_Backinstock {
 			. '.wcse-bis-consent{display:flex !important;align-items:flex-start;gap:8px}'
 			. '.wcse-bis-consent input{margin-top:3px}'
 			. '.wcse-bis-msg{margin:8px 0 0;font-weight:600}'
+			. '.wcse-bis-msg:empty{margin:0}'
 		);
 	}
 
@@ -188,7 +194,7 @@ class WC_Order_Upsale_Backinstock {
 				<input type="hidden" name="variation_id" value="0">
 				<button type="submit" class="button"><?php echo esc_html( $button ); ?></button>
 			</form>
-			<p class="wcse-bis-msg" role="status" aria-live="polite" style="display:none"></p>
+			<p class="wcse-bis-msg" role="status" aria-live="polite"></p>
 		</div>
 		<?php
 	}
@@ -197,6 +203,15 @@ class WC_Order_Upsale_Backinstock {
 
 	public function ajax_subscribe(): void {
 		check_ajax_referer( 'wcse_bis', 'nonce' );
+
+		// Throttle the public endpoint: max 10 submissions per IP per 10 minutes.
+		$ip  = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$key = 'wcse_bis_rl_' . md5( $ip );
+		$hits = (int) get_transient( $key );
+		if ( $hits >= 10 ) {
+			wp_send_json_error( [ 'message' => __( 'יותר מדי בקשות. נסו שוב מאוחר יותר.', 'wc-order-upsale' ) ] );
+		}
+		set_transient( $key, $hits + 1, 10 * MINUTE_IN_SECONDS );
 
 		$name    = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$email   = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
@@ -249,7 +264,7 @@ class WC_Order_Upsale_Backinstock {
 
 	public function on_product_restock( $product_id, $status, $product ): void {
 		if ( 'instock' === $status ) {
-			$this->notify_waiting( (int) $product_id, 0 );
+			$this->schedule_notifications( (int) $product_id, 0 );
 		}
 	}
 
@@ -258,26 +273,42 @@ class WC_Order_Upsale_Backinstock {
 			return;
 		}
 		$parent = $variation instanceof WC_Product ? (int) $variation->get_parent_id() : 0;
-		$this->notify_waiting( $parent, (int) $variation_id );
+		$this->schedule_notifications( $parent, (int) $variation_id );
+	}
+
+	/** Queue a background send so the restock request itself returns immediately. */
+	private function schedule_notifications( int $product_id, int $variation_id ): void {
+		$args = [ $product_id, $variation_id ];
+		if ( ! wp_next_scheduled( 'wcse_bis_notify', $args ) ) {
+			wp_schedule_single_event( time() + 30, 'wcse_bis_notify', $args );
+		}
 	}
 
 	/**
-	 * E-mail every waiting customer that a restocked item is available again,
-	 * then mark those rows notified so the mail is not sent twice.
+	 * Cron callback: e-mail waiting customers in bounded batches, marking each
+	 * processed row notified and rescheduling while more remain — so a large
+	 * waiting list never blocks a single request or hits max_execution_time.
+	 *
+	 * @param int $product_id
+	 * @param int $variation_id
 	 */
-	private function notify_waiting( int $product_id, int $variation_id ): void {
+	public function process_notifications( $product_id, $variation_id ): void {
 		global $wpdb;
-		$table = self::table();
+		$table        = self::table();
+		$product_id   = (int) $product_id;
+		$variation_id = (int) $variation_id;
 
 		if ( $variation_id > 0 ) {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, email FROM {$table} WHERE variation_id = %d AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
-				$variation_id
+				"SELECT id, name, email FROM {$table} WHERE variation_id = %d AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
+				$variation_id,
+				self::BATCH
 			) );
 		} else {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, email FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL", // phpcs:ignore WordPress.DB.PreparedSQL
-				$product_id
+				"SELECT id, name, email FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
+				$product_id,
+				self::BATCH
 			) );
 		}
 
@@ -289,39 +320,42 @@ class WC_Order_Upsale_Backinstock {
 		$name    = $product ? $product->get_name() : ( '#' . $product_id );
 		$url     = $product_id ? get_permalink( $product_id ) : home_url( '/' );
 
-		$subject = $this->text( 'email_subject', sprintf(
-			/* translators: %s: product name */
-			__( '%s חזר למלאי!', 'wc-order-upsale' ),
-			$name
-		) );
+		/* translators: %s: product name */
+		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
 		$headers = [ 'Content-Type: text/html; charset=UTF-8' ];
 
-		$notified = [];
+		$processed = [];
 		foreach ( $rows as $row ) {
+			// Mark processed regardless of send result to avoid an infinite retry loop.
+			$processed[] = (int) $row->id;
+
 			if ( ! is_email( $row->email ) ) {
-				$notified[] = (int) $row->id; // Skip and clear invalid addresses.
 				continue;
 			}
 
-			$body  = '<p>' . esc_html( sprintf( __( 'שלום %s,', 'wc-order-upsale' ), $row->name ) ) . '</p>';
-			$body .= '<p>' . esc_html( sprintf( __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name ) ) . '</p>';
+			/* translators: %s: recipient (customer) name */
+			$greeting = sprintf( __( 'שלום %s,', 'wc-order-upsale' ), $row->name );
+			/* translators: %s: product name */
+			$line = sprintf( __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name );
+
+			$body  = '<p>' . esc_html( $greeting ) . '</p>';
+			$body .= '<p>' . esc_html( $line ) . '</p>';
 			$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
 				. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
 
-			if ( wp_mail( $row->email, $subject, $body, $headers ) ) {
-				$notified[] = (int) $row->id;
-			}
+			wp_mail( $row->email, $subject, $body, $headers );
 		}
 
-		if ( empty( $notified ) ) {
-			return;
-		}
-
-		$in = implode( ',', array_fill( 0, count( $notified ), '%d' ) );
+		$in = implode( ',', array_fill( 0, count( $processed ), '%d' ) );
 		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 			"UPDATE {$table} SET notified_at = %s WHERE id IN ({$in})",
-			array_merge( [ current_time( 'mysql' ) ], $notified )
+			array_merge( [ current_time( 'mysql' ) ], $processed )
 		) );
+
+		// A full batch means more may be waiting — process the next one shortly.
+		if ( count( $rows ) >= self::BATCH ) {
+			wp_schedule_single_event( time() + 60, 'wcse_bis_notify', [ $product_id, $variation_id ] );
+		}
 	}
 
 	/* ─────────────────────────── Admin tab ──────────────────────────── */
@@ -389,12 +423,29 @@ class WC_Order_Upsale_Backinstock {
 
 		$out = fopen( 'php://output', 'w' );
 		fputs( $out, "\xEF\xBB\xBF" ); // UTF-8 BOM for Excel.
-		fputcsv( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at' ] );
+		$this->fputcsv_safe( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at' ] );
 		foreach ( (array) $rows as $row ) {
-			fputcsv( $out, $row );
+			$this->fputcsv_safe( $out, $row );
 		}
 		fclose( $out );
 		exit;
+	}
+
+	/** Write a CSV row, neutralising spreadsheet formula-injection in every cell. */
+	private function fputcsv_safe( $handle, array $row ): void {
+		$safe = array_map( [ $this, 'csv_cell' ], $row );
+		// Explicit $escape ('') opts into PHP's future no-backslash-escape default
+		// and silences the PHP 8.4 deprecation for the default argument.
+		fputcsv( $handle, $safe, ',', '"', '' );
+	}
+
+	/** Prefix a leading formula character so spreadsheets treat the value as text. */
+	private function csv_cell( $value ): string {
+		$value = (string) $value;
+		if ( '' !== $value && in_array( $value[0], [ '=', '+', '-', '@', "\t", "\r" ], true ) ) {
+			$value = "'" . $value;
+		}
+		return $value;
 	}
 
 	public function render_settings_tab(): void {
@@ -404,6 +455,16 @@ class WC_Order_Upsale_Backinstock {
 		$table = self::table();
 		$rows  = $wpdb->get_results( "SELECT id, product_id, variation_id, name, email, created_at, notified_at FROM {$table} ORDER BY created_at DESC LIMIT 200", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 		$total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+
+		// Warm post + meta caches for all listed products in one pass (avoids an
+		// N+1 of wc_get_product() calls inside the render loop below).
+		$prime_ids = [];
+		foreach ( (array) $rows as $r ) {
+			$prime_ids[] = (int) ( $r['variation_id'] ?: $r['product_id'] );
+		}
+		if ( $prime_ids ) {
+			_prime_post_caches( array_values( array_unique( $prime_ids ) ), false, true );
+		}
 		?>
 		<div class="wcse-admin">
 			<p class="description" style="max-width:720px">

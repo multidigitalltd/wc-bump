@@ -17,7 +17,7 @@ class WC_Order_Upsale_Modules {
 	/**
 	 * All known modules keyed by id.
 	 *
-	 * @return array<string,array{name:string,description:string,settings_slug:string,icon:string,default:bool}>
+	 * @return array<string,array{name:string,description:string,settings_slug:string,settings_tab?:string,icon:string,default:bool,benefit?:string,benefit_source?:string}>
 	 */
 	public static function definitions(): array {
 		return [
