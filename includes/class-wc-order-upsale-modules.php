@@ -70,6 +70,26 @@ class WC_Order_Upsale_Modules {
 				'benefit'        => __( 'התראות "חזר למלאי" הן מהסוגים הכי ממירים (20%–35% המרה) ומשחזרות מכירות שאבדו על מידות/צבעים שאזלו (Klaviyo/MarketingSherpa).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://marketingsherpa.com/article/case-study/backinstock-alert-emails-achieve-2245',
 			],
+			'sticky_atc'         => [
+				'name'           => __( 'סרגל הוספה לסל דביק', 'wc-order-upsale' ),
+				'description'    => __( 'סרגל צף עם כפתור "הוסף לסל" בעמוד המוצר (דסקטופ/מובייל), שמופיע כשגוללים מעבר לכפתור הראשי.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'sticky',
+				'icon'           => 'download',
+				'default'        => true,
+				'benefit'        => __( 'מעל 60% מהתנועה מובייל, עם נטישה של 80%–85%; שמירה על כפתור ההוספה נגיש לאורך הגלילה מעלה המרה במובייל (Baymard).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
+			],
+			'abandoned_cart'     => [
+				'name'           => __( 'שחזור עגלות נטושות', 'wc-order-upsale' ),
+				'description'    => __( 'לוכד עגלות של לקוחות שהזינו אימייל בצ׳קאאוט ולא סיימו, ושולח מייל שחזור אוטומטי עם קישור לשחזור הסל.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'abandoned',
+				'icon'           => 'email-alt',
+				'default'        => true,
+				'benefit'        => __( 'נטישת עגלה ~75%; מיילי שחזור ממירים ~10% ומובילים משחזרים 10%–14% מהעגלות. מייל תוך שעה = מקסימום כוונת קנייה (Baymard/Rejoiner).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://www.rejoiner.com/resources/abandoned-cart-email-statistics',
+			],
 		];
 	}
 
