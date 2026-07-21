@@ -2,7 +2,7 @@
 /**
  * Plugin Name: משפר חנויות ווקומרס
  * Description: משפר חנויות ווקומרס — אפסייל בצ'קאאוט + הצגת וריאציות המוצר ככפתורים יפים (מידה, אורך, צבע).
- * Version: 1.11.1
+ * Version: 1.12.0
  * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -27,7 +27,7 @@ if ( defined( 'WC_ORDER_UPSALE_VERSION' ) ) {
 	return;
 }
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.11.1' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.12.0' );
 define( 'WC_ORDER_UPSALE_FILE', __FILE__ );
 define( 'WC_ORDER_UPSALE_BASENAME', plugin_basename( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
@@ -76,6 +76,7 @@ add_action( 'plugins_loaded', function () {
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-backinstock.php';
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-sticky.php';
 	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-abandoned.php';
+	require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-buynow.php';
 
 	new WC_Order_Upsale_Dashboard();
 	new WC_Order_Upsale_Admin();
@@ -87,4 +88,5 @@ add_action( 'plugins_loaded', function () {
 	new WC_Order_Upsale_Backinstock();
 	new WC_Order_Upsale_Sticky();
 	new WC_Order_Upsale_Abandoned();
+	new WC_Order_Upsale_Buynow();
 } );

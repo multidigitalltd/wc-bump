@@ -30,6 +30,16 @@ class WC_Order_Upsale_Modules {
 				'benefit'        => __( 'הצעה רלוונטית ברגע הקנייה מגדילה את ערך ההזמנה הממוצע (AOV) בלי להביא תנועה חדשה.', 'wc-order-upsale' ),
 				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
 			],
+			'buy_now'            => [
+				'name'           => __( 'כפתור קנה עכשיו', 'wc-order-upsale' ),
+				'description'    => __( 'כפתור "קנה עכשיו" בעמוד המוצר שמדלג על עמוד הסל ומעביר ישירות לצ׳קאאוט.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'buynow',
+				'icon'           => 'money-alt',
+				'default'        => false,
+				'benefit'        => __( 'כל צעד מיותר בדרך לרכישה עולה בהמרות; מסלול קנייה מהיר (בסגנון 1-Click של אמזון) מקצר את המשפך ומעלה השלמת רכישה.', 'wc-order-upsale' ),
+				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
+			],
 			'variation_swatches' => [
 				'name'           => __( 'וריאציות יפות', 'wc-order-upsale' ),
 				'description'    => __( 'המרת תפריטי הווריאציות (מידה, אורך, צבע) לכפתורים עגולים ועיגולי צבע יפים בעמוד המוצר.', 'wc-order-upsale' ),
