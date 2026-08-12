@@ -80,8 +80,9 @@ class WC_Order_Upsale_Frontend {
 			'i18n'    => [
 				'close'          => __( 'סגור', 'wc-order-upsale' ),
 				'chooseOptions'  => __( 'בחרו את כל האפשרויות כדי להוסיף לסל', 'wc-order-upsale' ),
-				'unavailable'    => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ),
+				'unavailable'    => __( 'הצירוף הזה לא קיים למוצר. נסו אפשרות אחרת.', 'wc-order-upsale' ),
 				'outOfStock'     => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ),
+				'expired'        => __( 'פג תוקף העמוד. רעננו את הדף ונסו שוב.', 'wc-order-upsale' ),
 				'genericError'   => __( 'אירעה שגיאה. נסו שוב.', 'wc-order-upsale' ),
 			],
 		] );
@@ -430,23 +431,56 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	/**
-	 * Keep only well-formed "attribute_*" pairs from a submitted attribute map.
+	 * The chosen variation attributes for a variable product, read from a request.
 	 *
-	 * @param mixed $raw Raw request value.
+	 * Keys are rebuilt from the product's own attributes rather than trusted from
+	 * input, and values are sanitized exactly the way WooCommerce sanitizes them on
+	 * the product page. That distinction matters: a taxonomy term slug must go
+	 * through sanitize_title(), because sanitize_text_field()/wc_clean() strip
+	 * percent-encoded sequences — and a non-Latin slug ("אדום" => "%d7%90%d7%93%d7%95%d7%9d")
+	 * is made of nothing else, so cleaning it leaves an empty string and no
+	 * variation ever matches.
+	 *
+	 * @param WC_Product $product The variable parent product.
+	 * @param mixed      $raw     Raw, unslashed request value.
 	 * @return array<string,string>
 	 */
-	private function sanitize_attributes( $raw ): array {
-		$clean = [];
-		foreach ( (array) $raw as $key => $value ) {
-			if ( ! is_scalar( $value ) || ! is_string( $key ) ) {
+	private function chosen_attributes( WC_Product $product, $raw ): array {
+		$submitted = is_array( $raw ) ? $raw : [];
+		$clean     = [];
+
+		foreach ( $product->get_attributes() as $attribute ) {
+			if ( ! $attribute->get_variation() ) {
 				continue;
 			}
-			if ( 0 !== strpos( $key, 'attribute_' ) ) {
+
+			$key   = wc_variation_attribute_name( $attribute->get_name() );
+			$value = $submitted[ $key ] ?? '';
+			if ( ! is_scalar( $value ) ) {
 				continue;
 			}
-			$clean[ sanitize_text_field( $key ) ] = sanitize_text_field( (string) $value );
+
+			$clean[ $key ] = $attribute->is_taxonomy()
+				? sanitize_title( (string) $value )
+				: html_entity_decode( wc_clean( (string) $value ), ENT_QUOTES, get_bloginfo( 'charset' ) );
 		}
+
 		return $clean;
+	}
+
+	/**
+	 * Whether every variation attribute has been answered. "Any" variations are
+	 * handled by the data store, but a blank select means the shopper has not
+	 * chosen yet.
+	 */
+	private function attributes_complete( WC_Product $product, array $attributes ): bool {
+		foreach ( array_keys( $product->get_variation_attributes() ) as $attribute_name ) {
+			$key = wc_variation_attribute_name( $attribute_name );
+			if ( '' === ( $attributes[ $key ] ?? '' ) ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/** Resolve chosen attributes to a variation id, or 0 when nothing matches. */
@@ -454,13 +488,8 @@ class WC_Order_Upsale_Frontend {
 		if ( ! $product->is_type( 'variable' ) || empty( $attributes ) ) {
 			return 0;
 		}
-		// Every attribute must be answered; "any" variations are handled by the
-		// data store, but a blank select means the shopper has not chosen yet.
-		foreach ( array_keys( $product->get_variation_attributes() ) as $attribute_name ) {
-			$key = wc_variation_attribute_name( $attribute_name );
-			if ( '' === ( $attributes[ $key ] ?? '' ) ) {
-				return 0;
-			}
+		if ( ! $this->attributes_complete( $product, $attributes ) ) {
+			return 0;
 		}
 
 		return (int) WC_Data_Store::load( 'product' )->find_matching_product_variation( $product, $attributes );
@@ -694,7 +723,6 @@ class WC_Order_Upsale_Frontend {
 		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
 
 		$product_id = absint( $_POST['product_id'] ?? 0 );
-		$attributes = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
 
 		$config = $product_id ? $this->find_config( $product_id ) : null;
 		if ( ! $config ) {
@@ -706,11 +734,15 @@ class WC_Order_Upsale_Frontend {
 			wp_send_json_error( [ 'message' => __( 'למוצר זה אין אפשרויות לבחירה', 'wc-order-upsale' ) ] );
 		}
 
-		$variation = $this->resolve_variation( $product, $attributes );
-		if ( ! $variation ) {
-			wp_send_json_error( [ 'message' => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ) ] );
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
+		$attributes = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
+
+		$result = $this->resolve_variation( $product, $attributes );
+		if ( ! $result['variation'] ) {
+			wp_send_json_error( [ 'message' => $this->resolve_error_message( $result['reason'] ) ] );
 		}
 
+		$variation = $result['variation'];
 		wp_send_json_success( [
 			'variation_id' => $variation->get_id(),
 			'price_html'   => $this->get_price_html( $variation, $config ),
@@ -719,16 +751,47 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	/**
-	 * The purchasable variation for a set of attributes, or null when the
-	 * combination does not exist or cannot be bought.
+	 * The purchasable variation for a set of attributes.
+	 *
+	 * Returns the reason alongside it so the card can say what actually went
+	 * wrong — "this combination was never created" and "this variation has no
+	 * price" are different problems with different fixes, and reporting both as
+	 * "unavailable" leaves the shop owner guessing.
+	 *
+	 * @return array{variation:?WC_Product,reason:string} reason is '' on success,
+	 *         else 'incomplete', 'no_match' or 'not_purchasable'.
 	 */
-	private function resolve_variation( WC_Product $product, array $attributes ): ?WC_Product {
+	private function resolve_variation( WC_Product $product, array $attributes ): array {
+		if ( ! $this->attributes_complete( $product, $attributes ) ) {
+			return [ 'variation' => null, 'reason' => 'incomplete' ];
+		}
+
 		$variation_id = $this->match_variation( $product, $attributes );
 		if ( ! $variation_id ) {
-			return null;
+			return [ 'variation' => null, 'reason' => 'no_match' ];
 		}
+
 		$variation = wc_get_product( $variation_id );
-		return ( $variation && $variation->is_purchasable() ) ? $variation : null;
+		if ( ! $variation ) {
+			return [ 'variation' => null, 'reason' => 'no_match' ];
+		}
+		if ( ! $variation->is_purchasable() ) {
+			return [ 'variation' => null, 'reason' => 'not_purchasable' ];
+		}
+
+		return [ 'variation' => $variation, 'reason' => '' ];
+	}
+
+	/** Shopper-facing text for a failed variation resolution. */
+	private function resolve_error_message( string $reason ): string {
+		switch ( $reason ) {
+			case 'incomplete':
+				return __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' );
+			case 'not_purchasable':
+				return __( 'האפשרות הזו אינה זמינה לרכישה כרגע.', 'wc-order-upsale' );
+			default:
+				return __( 'הצירוף הזה לא קיים למוצר. נסו אפשרות אחרת.', 'wc-order-upsale' );
+		}
 	}
 
 	public function ajax_toggle(): void {
@@ -785,10 +848,12 @@ class WC_Order_Upsale_Frontend {
 		if ( $product->is_type( 'variable' ) ) {
 			// The shopper picks the variation in the card; resolve it server-side
 			// so a tampered request can never add an arbitrary variation.
-			$chosen    = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
-			$variation = $this->resolve_variation( $product, $chosen );
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
+			$chosen    = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
+			$result    = $this->resolve_variation( $product, $chosen );
+			$variation = $result['variation'];
 			if ( ! $variation ) {
-				wp_send_json_error( [ 'message' => __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' ) ] );
+				wp_send_json_error( [ 'message' => $this->resolve_error_message( $result['reason'] ) ] );
 			}
 			if ( ! $variation->is_in_stock() ) {
 				wp_send_json_error( [ 'message' => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ) ] );

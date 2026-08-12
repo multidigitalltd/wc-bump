@@ -25,6 +25,24 @@ jQuery( function ( $ ) {
 		}
 	}
 
+	/**
+	 * An expired nonce makes admin-ajax answer with a bare "-1" instead of JSON,
+	 * which otherwise surfaces as a misleading "combination unavailable".
+	 */
+	function isExpired( response ) {
+		return response === -1 || response === '-1' || response === 0 || response === '0';
+	}
+
+	/** Reports a failed response, preferring the server's own explanation. */
+	function showFailure( $item, response, fallback ) {
+		if ( isExpired( response ) ) {
+			showMessage( $item, wcOrderUpsale.i18n.expired );
+			return;
+		}
+		var data = response && response.data;
+		showMessage( $item, ( data && data.message ) || fallback );
+	}
+
 	// Refresh price and availability whenever a variation choice changes.
 	$( document ).on( 'change', '.order-upsale-attr', function () {
 		var $item  = $( this ).closest( '.order-upsale-item' );
@@ -54,8 +72,8 @@ jQuery( function ( $ ) {
 			attributes: chosen.attrs,
 		} )
 		.done( function ( response ) {
-			if ( ! response.success ) {
-				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.unavailable );
+			if ( ! response || ! response.success ) {
+				showFailure( $item, response, wcOrderUpsale.i18n.unavailable );
 				return;
 			}
 
@@ -98,8 +116,8 @@ jQuery( function ( $ ) {
 			attributes:    chosen.attrs,
 		} )
 		.done( function ( response ) {
-			if ( ! response.success ) {
-				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.genericError );
+			if ( ! response || ! response.success ) {
+				showFailure( $item, response, wcOrderUpsale.i18n.genericError );
 				return;
 			}
 

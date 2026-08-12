@@ -19,8 +19,13 @@ class WC_Order_Upsale_Backinstock {
 
 	const OPTION          = 'wc_store_enhancer_bis';
 	const DB_VERSION_OPT  = 'wc_store_enhancer_bis_db_version';
-	const DB_VERSION      = '1.2.0';
+	const DB_VERSION      = '1.3.0';
 	const BATCH           = 25;
+	/** Give up on an address after this many failed sends, so a dead mailer cannot loop forever. */
+	const MAX_ATTEMPTS    = 3;
+
+	/** Collects the reason wp_mail() failed, captured from the wp_mail_failed action. */
+	private string $last_mail_error = '';
 
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
@@ -29,6 +34,7 @@ class WC_Order_Upsale_Backinstock {
 		add_action( 'admin_post_save_wc_store_enhancer_bis',        [ $this, 'save_settings' ] );
 		add_action( 'admin_post_wc_store_enhancer_bis_export',      [ $this, 'export_csv' ] );
 		add_action( 'admin_post_wc_store_enhancer_bis_delete',      [ $this, 'delete_subscriber' ] );
+		add_action( 'admin_post_wc_store_enhancer_bis_test',        [ $this, 'send_test_email' ] );
 
 		// Background sender — always registered so scheduled events still fire.
 		add_action( 'wcse_bis_notify', [ $this, 'process_notifications' ], 10, 2 );
@@ -41,7 +47,36 @@ class WC_Order_Upsale_Backinstock {
 
 			add_action( 'woocommerce_product_set_stock_status',     [ $this, 'on_product_restock' ], 20, 3 );
 			add_action( 'woocommerce_variation_set_stock_status',   [ $this, 'on_variation_restock' ], 20, 3 );
+
+			// WooCommerce strips sold-out variations out of the product page's
+			// variation data when "hide out of stock items" is on, so the shopper
+			// can never select one and no back-in-stock form can ever appear.
+			// Suspend that setting for the add-to-cart block only — the catalog,
+			// search and every other query keep the store's own behaviour.
+			add_action( 'woocommerce_single_product_summary',       [ $this, 'show_sold_out_variations' ], 29 );
+			add_action( 'woocommerce_single_product_summary',       [ $this, 'restore_hidden_variations' ], 31 );
 		}
+	}
+
+	/* ───────────── Sold-out variations on the product page ──────────── */
+
+	/** Whether sold-out variations should be selectable on the product page. */
+	private function shows_sold_out_variations(): bool {
+		return '' !== (string) ( self::get_settings()['show_oos_variations'] ?? '1' );
+	}
+
+	public function show_sold_out_variations(): void {
+		if ( $this->shows_sold_out_variations() ) {
+			add_filter( 'pre_option_woocommerce_hide_out_of_stock_items', [ $this, 'force_no' ], 99 );
+		}
+	}
+
+	public function restore_hidden_variations(): void {
+		remove_filter( 'pre_option_woocommerce_hide_out_of_stock_items', [ $this, 'force_no' ], 99 );
+	}
+
+	public function force_no( $value ) {
+		return 'no';
 	}
 
 	/* ─────────────────────────── Storage ────────────────────────────── */
@@ -67,6 +102,8 @@ class WC_Order_Upsale_Backinstock {
 			consent TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			notified_at DATETIME NULL DEFAULT NULL,
+			attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+			last_error VARCHAR(190) NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
 			KEY product_id (product_id),
 			KEY variation_id (variation_id),
@@ -94,6 +131,8 @@ class WC_Order_Upsale_Backinstock {
 			'consent_text'  => '',
 			'success_text'  => '',
 			'email_subject' => '',
+			// Empty string means off; '1' (the default) means on.
+			'show_oos_variations' => '1',
 		] );
 	}
 
@@ -146,7 +185,7 @@ class WC_Order_Upsale_Backinstock {
 			. '.wcse-bis-title{font-weight:700;margin:0 0 10px}'
 			. '.wcse-bis-form p{margin:0 0 10px}'
 			. '.wcse-bis-form label{display:block;font-size:14px}'
-			. '.wcse-bis-form input[type=text],.wcse-bis-form input[type=tel]{width:100%;max-width:320px}'
+			. '.wcse-bis-form input[type=text],.wcse-bis-form input[type=email]{width:100%;max-width:320px}'
 			. '.wcse-bis-consent{display:flex !important;align-items:flex-start;gap:8px}'
 			. '.wcse-bis-consent input{margin-top:3px}'
 			. '.wcse-bis-msg{margin:8px 0 0;font-weight:600}'
@@ -168,12 +207,18 @@ class WC_Order_Upsale_Backinstock {
 			return;
 		}
 
+		// A variable product with nothing left in stock has no variation for the
+		// shopper to pick, so waiting for a variation event would hide the form
+		// forever. Show it straight away and collect against the parent.
+		$variable_sold_out = $is_variable && ! $product->is_in_stock();
+		$start_hidden      = $is_variable && ! $variable_sold_out;
+
 		$title    = $this->text( 'title', __( 'רוצים שנעדכן כשחוזר למלאי?', 'wc-order-upsale' ) );
 		$consent  = $this->text( 'consent_text', __( 'אני מאשר/ת קבלת עדכון וקבלת דיוור שיווקי.', 'wc-order-upsale' ) );
 		$button   = $this->text( 'button_text', __( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ) );
 		$uid      = 'wcse-bis-' . $product->get_id();
 		?>
-		<div class="wcse-bis" <?php echo $is_variable ? 'hidden' : ''; ?>>
+		<div class="wcse-bis" <?php echo $start_hidden ? 'hidden' : ''; ?>>
 			<form class="wcse-bis-form" novalidate>
 				<p class="wcse-bis-title"><?php echo esc_html( $title ); ?></p>
 				<p>
@@ -259,7 +304,7 @@ class WC_Order_Upsale_Backinstock {
 					'variation_id' => $variant,
 					'name'         => $name,
 					'email'        => $email,
-					'consent'      => 1,
+					'consent'      => $consent ? 1 : 0,
 					'created_at'   => current_time( 'mysql' ),
 				],
 				[ '%d', '%d', '%s', '%s', '%d', '%s' ]
@@ -311,13 +356,13 @@ class WC_Order_Upsale_Backinstock {
 
 		if ( $variation_id > 0 ) {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, email FROM {$table} WHERE variation_id = %d AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
+				"SELECT id, name, email, attempts FROM {$table} WHERE variation_id = %d AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
 				$variation_id,
 				self::BATCH
 			) );
 		} else {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, email FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
+				"SELECT id, name, email, attempts FROM {$table} WHERE product_id = %d AND variation_id = 0 AND notified_at IS NULL ORDER BY id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
 				$product_id,
 				self::BATCH
 			) );
@@ -342,12 +387,18 @@ class WC_Order_Upsale_Backinstock {
 		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
 		$headers = [ 'Content-Type: text/html; charset=UTF-8' ];
 
-		$processed = [];
+		$now     = current_time( 'mysql' );
+		$sent    = [];
+		$retry   = false;
+
+		add_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
+
 		foreach ( $rows as $row ) {
-			// Mark processed regardless of send result to avoid an infinite retry loop.
-			$processed[] = (int) $row->id;
+			$id       = (int) $row->id;
+			$attempts = (int) $row->attempts + 1;
 
 			if ( ! is_email( $row->email ) ) {
+				$this->record_failure( $id, $attempts, __( 'כתובת אימייל לא תקינה', 'wc-order-upsale' ), $now );
 				continue;
 			}
 
@@ -361,19 +412,64 @@ class WC_Order_Upsale_Backinstock {
 			$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
 				. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
 
-			wp_mail( $row->email, $subject, $body, $headers );
+			$this->last_mail_error = '';
+			$ok = wp_mail( $row->email, $subject, $body, $headers );
+
+			if ( $ok ) {
+				$sent[] = $id;
+				continue;
+			}
+
+			// A send that failed is worth another go — a mail server can be briefly
+			// unreachable — but only up to MAX_ATTEMPTS, and the reason is kept so
+			// the admin list can show why nothing arrived instead of claiming success.
+			$error = $this->last_mail_error ?: __( 'wp_mail נכשל ללא פירוט — כנראה שהאתר לא מוגדר לשליחת דואר', 'wc-order-upsale' );
+			$this->record_failure( $id, $attempts, $error, $now );
+			if ( $attempts < self::MAX_ATTEMPTS ) {
+				$retry = true;
+			}
 		}
 
-		$in = implode( ',', array_fill( 0, count( $processed ), '%d' ) );
-		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-			"UPDATE {$table} SET notified_at = %s WHERE id IN ({$in})",
-			array_merge( [ current_time( 'mysql' ) ], $processed )
-		) );
+		remove_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
 
-		// A full batch means more may be waiting — process the next one shortly.
-		if ( count( $rows ) >= self::BATCH ) {
-			wp_schedule_single_event( time() + 60, 'wcse_bis_notify', [ $product_id, $variation_id ] );
+		if ( $sent ) {
+			$in = implode( ',', array_fill( 0, count( $sent ), '%d' ) );
+			$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+				"UPDATE {$table} SET notified_at = %s, last_error = '' WHERE id IN ({$in})",
+				array_merge( [ $now ], $sent )
+			) );
 		}
+
+		// A full batch means more may be waiting; a retryable failure means the
+		// same rows deserve another pass. Either way, come back shortly.
+		if ( $retry || count( $rows ) >= self::BATCH ) {
+			wp_schedule_single_event( time() + 300, 'wcse_bis_notify', [ $product_id, $variation_id ] );
+		}
+	}
+
+	/** Remember why wp_mail() failed so the row can explain itself in the admin list. */
+	public function capture_mail_error( $error ): void {
+		if ( is_wp_error( $error ) ) {
+			$this->last_mail_error = $error->get_error_message();
+		}
+	}
+
+	/**
+	 * Record a failed send. Once MAX_ATTEMPTS is reached the row is closed off
+	 * (notified_at set) so a permanently broken mailer cannot queue forever — but
+	 * last_error stays, so it reads as "failed", never as "delivered".
+	 */
+	private function record_failure( int $id, int $attempts, string $error, string $now ): void {
+		global $wpdb;
+		$data    = [ 'attempts' => $attempts, 'last_error' => mb_substr( $error, 0, 190 ) ];
+		$formats = [ '%d', '%s' ];
+
+		if ( $attempts >= self::MAX_ATTEMPTS ) {
+			$data['notified_at'] = $now;
+			$formats[]           = '%s';
+		}
+
+		$wpdb->update( self::table(), $data, [ 'id' => $id ], $formats, [ '%d' ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	}
 
 	/* ─────────────────────────── Admin tab ──────────────────────────── */
@@ -401,6 +497,7 @@ class WC_Order_Upsale_Backinstock {
 			'consent_text'  => sanitize_text_field( wp_unslash( $_POST['consent_text'] ?? '' ) ),
 			'success_text'  => sanitize_text_field( wp_unslash( $_POST['success_text'] ?? '' ) ),
 			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? '' ) ),
+			'show_oos_variations' => empty( $_POST['show_oos_variations'] ) ? '' : '1',
 		] );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=backinstock&saved=1' ) );
@@ -423,6 +520,53 @@ class WC_Order_Upsale_Backinstock {
 		exit;
 	}
 
+	/**
+	 * Send a specimen of the restock e-mail to the current admin. Without this the
+	 * only way to find out whether the site can send mail at all is to sell a
+	 * product out, restock it, and hope.
+	 */
+	public function send_test_email(): void {
+		if ( ! check_admin_referer( 'wcse_bis_test' ) ) {
+			wp_die( 'Security check failed' );
+		}
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( 'Unauthorized' );
+		}
+
+		$user  = wp_get_current_user();
+		$to    = $user->user_email;
+		$name  = __( 'מוצר לדוגמה', 'wc-order-upsale' );
+		$subject = $this->text( 'email_subject', sprintf( /* translators: %s: product name */ __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
+
+		$body  = '<p>' . esc_html( sprintf( /* translators: %s: recipient name */ __( 'שלום %s,', 'wc-order-upsale' ), $user->display_name ) ) . '</p>';
+		$body .= '<p>' . esc_html( sprintf( /* translators: %s: product name */ __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name ) ) . '</p>';
+		$body .= '<p><a href="' . esc_url( home_url( '/' ) ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
+			. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
+		$body .= '<hr><p style="color:#777;font-size:13px">' . esc_html__( 'זהו מייל בדיקה מהתוסף. אם קיבלתם אותו — שליחת הדואר באתר תקינה.', 'wc-order-upsale' ) . '</p>';
+
+		$this->last_mail_error = '';
+		add_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
+		$ok = wp_mail( $to, $subject, $body, [ 'Content-Type: text/html; charset=UTF-8' ] );
+		remove_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
+
+		$args = [
+			'page' => WC_Order_Upsale_Dashboard::SETTINGS_SLUG,
+			'tab'  => 'backinstock',
+			'test' => $ok ? 'ok' : 'fail',
+		];
+		if ( ! $ok ) {
+			$args['test_error'] = $this->last_mail_error ?: __( 'wp_mail החזיר כישלון ללא פירוט.', 'wc-order-upsale' );
+		}
+
+		wp_safe_redirect( add_query_arg( array_map( 'rawurlencode', $args ), admin_url( 'admin.php' ) ) );
+		exit;
+	}
+
+	/** True when WP-Cron is switched off, which silently strands every queued send. */
+	private function cron_disabled(): bool {
+		return defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON;
+	}
+
 	public function export_csv(): void {
 		if ( ! check_admin_referer( 'wcse_bis_export' ) ) {
 			wp_die( 'Security check failed' );
@@ -433,7 +577,7 @@ class WC_Order_Upsale_Backinstock {
 
 		global $wpdb;
 		$table = self::table();
-		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, email, consent, created_at, notified_at FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, email, consent, created_at, notified_at, attempts, last_error FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 
 		nocache_headers();
 		header( 'Content-Type: text/csv; charset=utf-8' );
@@ -441,7 +585,7 @@ class WC_Order_Upsale_Backinstock {
 
 		$out = fopen( 'php://output', 'w' );
 		fputs( $out, "\xEF\xBB\xBF" ); // UTF-8 BOM for Excel.
-		$this->fputcsv_safe( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at' ] );
+		$this->fputcsv_safe( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at', 'attempts', 'last_error' ] );
 		foreach ( (array) $rows as $row ) {
 			$this->fputcsv_safe( $out, $row );
 		}
@@ -471,7 +615,7 @@ class WC_Order_Upsale_Backinstock {
 
 		global $wpdb;
 		$table = self::table();
-		$rows  = $wpdb->get_results( "SELECT id, product_id, variation_id, name, email, created_at, notified_at FROM {$table} ORDER BY created_at DESC LIMIT 200", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$rows  = $wpdb->get_results( "SELECT id, product_id, variation_id, name, email, created_at, notified_at, attempts, last_error FROM {$table} ORDER BY created_at DESC LIMIT 200", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 		$total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 
 		// Warm post + meta caches for all listed products in one pass (avoids an
@@ -493,6 +637,23 @@ class WC_Order_Upsale_Backinstock {
 				<div class="notice notice-warning inline"><p>
 					<?php esc_html_e( 'המודול כבוי כרגע. הפעילו אותו מלוח הבקרה.', 'wc-order-upsale' ); ?>
 					<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::MENU_SLUG ) ); ?>"><?php esc_html_e( 'לוח הבקרה', 'wc-order-upsale' ); ?></a>
+				</p></div>
+			<?php endif; ?>
+
+			<?php if ( $this->cron_disabled() ) : ?>
+				<div class="notice notice-error inline"><p>
+					<strong><?php esc_html_e( 'WP-Cron מכובה באתר (DISABLE_WP_CRON).', 'wc-order-upsale' ); ?></strong>
+					<?php esc_html_e( 'מיילי "חזר למלאי" נשלחים ברקע דרך WP-Cron — בלעדיו הם יישארו בתור ולא יישלחו לעולם. הפעילו WP-Cron, או הגדירו cron אמיתי בשרת שקורא ל-wp-cron.php.', 'wc-order-upsale' ); ?>
+				</p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['test'] ) && 'ok' === $_GET['test'] ) : ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'מייל הבדיקה נשלח. אם הוא הגיע לתיבה שלכם — שליחת הדואר באתר תקינה.', 'wc-order-upsale' ); ?></p></div>
+			<?php elseif ( isset( $_GET['test'] ) ) : ?>
+				<div class="notice notice-error is-dismissible"><p>
+					<strong><?php esc_html_e( 'שליחת מייל הבדיקה נכשלה.', 'wc-order-upsale' ); ?></strong><br>
+					<?php echo esc_html( sanitize_text_field( wp_unslash( $_GET['test_error'] ?? '' ) ) ); ?><br>
+					<?php esc_html_e( 'כל עוד זה המצב, אף מייל "חזר למלאי" לא יגיע. מומלץ להתקין תוסף SMTP ולחבר תיבת דואר אמיתית.', 'wc-order-upsale' ); ?>
 				</p></div>
 			<?php endif; ?>
 
@@ -524,6 +685,18 @@ class WC_Order_Upsale_Backinstock {
 						<td><input type="text" id="wcse-bis-success" name="success_text" value="<?php echo esc_attr( $settings['success_text'] ); ?>" placeholder="<?php esc_attr_e( 'תודה! נעדכן אתכם כשהמוצר יחזור למלאי.', 'wc-order-upsale' ); ?>" class="large-text"></td>
 					</tr>
 					<tr>
+						<th scope="row"><?php esc_html_e( 'וריאציות שאזלו', 'wc-order-upsale' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="show_oos_variations" value="1" <?php checked( $this->shows_sold_out_variations() ); ?>>
+								<?php esc_html_e( 'אפשר לבחור בעמוד המוצר גם מידות/צבעים שאזלו', 'wc-order-upsale' ); ?>
+							</label>
+							<p class="description">
+								<?php esc_html_e( 'כשההגדרה של ווקומרס "הסתר פריטים שאזלו מהמלאי" דלוקה, ווקומרס מסיר וריאציות שאזלו מעמוד המוצר — הלקוח לא יכול לבחור אותן, ולכן טופס ההרשמה לא יופיע לעולם. האפשרות הזו מחזירה אותן לבחירה בעמוד המוצר בלבד; הקטלוג, החיפוש ושאר האתר לא משתנים.', 'wc-order-upsale' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><label for="wcse-bis-subject"><?php esc_html_e( 'נושא מייל ללקוח', 'wc-order-upsale' ); ?></label></th>
 						<td>
 							<input type="text" id="wcse-bis-subject" name="email_subject" value="<?php echo esc_attr( $settings['email_subject'] ); ?>" placeholder="<?php esc_attr_e( '{שם המוצר} חזר למלאי!', 'wc-order-upsale' ); ?>" class="large-text">
@@ -533,6 +706,16 @@ class WC_Order_Upsale_Backinstock {
 				</table>
 				<p class="submit"><button type="submit" class="button button-primary button-large"><?php esc_html_e( 'שמור הגדרות', 'wc-order-upsale' ); ?></button></p>
 			</form>
+
+			<p>
+				<a class="button" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=wc_store_enhancer_bis_test' ), 'wcse_bis_test' ) ); ?>">
+					<?php esc_html_e( 'שלחו מייל בדיקה אליי', 'wc-order-upsale' ); ?>
+				</a>
+				<span class="description"><?php
+					/* translators: %s: admin e-mail address */
+					printf( esc_html__( 'נשלח אל %s ומאמת שהאתר בכלל מסוגל לשלוח דואר.', 'wc-order-upsale' ), esc_html( wp_get_current_user()->user_email ) );
+				?></span>
+			</p>
 
 			<hr>
 			<h2><?php esc_html_e( 'נרשמים', 'wc-order-upsale' ); ?> (<?php echo esc_html( number_format_i18n( $total ) ); ?>)</h2>
@@ -572,9 +755,14 @@ class WC_Order_Upsale_Backinstock {
 								<td><?php echo esc_html( $row['email'] ); ?></td>
 								<td><?php echo esc_html( $row['created_at'] ); ?></td>
 								<td>
-									<?php echo $row['notified_at']
-										? '<span style="color:#125c2b">' . esc_html__( 'עודכן/טופל', 'wc-order-upsale' ) . '</span>'
-										: '<span style="color:#7a5c00">' . esc_html__( 'ממתין', 'wc-order-upsale' ) . '</span>'; ?>
+									<?php if ( ! empty( $row['last_error'] ) ) : ?>
+										<span style="color:#b32d2e"><?php esc_html_e( 'שליחה נכשלה', 'wc-order-upsale' ); ?></span>
+										<span class="description" style="display:block"><?php echo esc_html( $row['last_error'] ); ?></span>
+									<?php elseif ( $row['notified_at'] ) : ?>
+										<span style="color:#125c2b"><?php esc_html_e( 'נשלח', 'wc-order-upsale' ); ?></span>
+									<?php else : ?>
+										<span style="color:#7a5c00"><?php esc_html_e( 'ממתין', 'wc-order-upsale' ); ?></span>
+									<?php endif; ?>
 								</td>
 								<td>
 									<a class="button button-small" style="color:#b32d2e"
