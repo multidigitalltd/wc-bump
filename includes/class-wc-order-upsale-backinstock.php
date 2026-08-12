@@ -27,6 +27,9 @@ class WC_Order_Upsale_Backinstock {
 	/** Collects the reason wp_mail() failed, captured from the wp_mail_failed action. */
 	private string $last_mail_error = '';
 
+	/** Set once the form has been output, so the fallbacks never double it up. */
+	private bool $form_rendered = false;
+
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
 
@@ -45,7 +48,14 @@ class WC_Order_Upsale_Backinstock {
 
 		if ( $this->is_enabled() ) {
 			add_action( 'wp_enqueue_scripts',                       [ $this, 'enqueue_assets' ] );
+			// Themes and page builders that rebuild the product template often fire
+			// only some of WooCommerce's hooks — and one that fires none of them
+			// would hide the form completely. Offer several routes and let the
+			// render-once guard keep exactly one of them.
 			add_action( 'woocommerce_single_product_summary',       [ $this, 'render_form' ], 35 );
+			add_action( 'woocommerce_after_single_product_summary', [ $this, 'render_form' ], 5 );
+			add_action( 'wp_footer',                                [ $this, 'inject_fallback' ], 20 );
+			add_shortcode( 'wcse_back_in_stock',                    [ $this, 'shortcode' ] );
 			add_action( 'wp_ajax_wcse_bis_subscribe',               [ $this, 'ajax_subscribe' ] );
 			add_action( 'wp_ajax_nopriv_wcse_bis_subscribe',        [ $this, 'ajax_subscribe' ] );
 
@@ -200,8 +210,61 @@ class WC_Order_Upsale_Backinstock {
 		);
 	}
 
+	/** [wcse_back_in_stock] — manual placement for a custom or page-builder template. */
+	public function shortcode(): string {
+		ob_start();
+		$this->render_form();
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Last resort for templates that fire none of the product hooks: emit the
+	 * form hidden in the footer and let a few lines of JS move it next to the
+	 * add-to-cart area. Without this such a theme simply never shows the form.
+	 */
+	public function inject_fallback(): void {
+		if ( $this->form_rendered || ! function_exists( 'is_product' ) || ! is_product() ) {
+			return;
+		}
+
+		$html = $this->shortcode();
+		if ( '' === trim( $html ) ) {
+			return;
+		}
+		?>
+		<div id="wcse-bis-payload" style="display:none"><?php echo $html; // phpcs:ignore WordPress.Security.EscapeOutput ?></div>
+		<script>
+		(function () {
+			var src = document.getElementById( 'wcse-bis-payload' );
+			if ( ! src ) { return; }
+			var targets = [
+				'form.variations_form', 'form.cart', '.summary', '.entry-summary',
+				'.elementor-widget-woocommerce-product-add-to-cart', '.product'
+			];
+			for ( var i = 0; i < targets.length; i++ ) {
+				var el = document.querySelector( targets[ i ] );
+				if ( el ) {
+					src.style.display = '';
+					el.parentNode.insertBefore( src, el.nextSibling );
+					return;
+				}
+			}
+		})();
+		</script>
+		<?php
+	}
+
 	public function render_form(): void {
+		if ( $this->form_rendered ) {
+			return;
+		}
+
+		// The global is only set inside the loop, so fall back to the queried
+		// product for footer and shortcode rendering.
 		$product = $GLOBALS['product'] ?? null;
+		if ( ! $product instanceof WC_Product && function_exists( 'is_product' ) && is_product() ) {
+			$product = wc_get_product( get_queried_object_id() );
+		}
 		if ( ! $product instanceof WC_Product ) {
 			return;
 		}
@@ -249,6 +312,7 @@ class WC_Order_Upsale_Backinstock {
 			<p class="wcse-bis-msg" role="status" aria-live="polite"></p>
 		</div>
 		<?php
+		$this->form_rendered = true;
 	}
 
 	/* ─────────────────────────── AJAX ───────────────────────────────── */
@@ -804,7 +868,10 @@ class WC_Order_Upsale_Backinstock {
 		?>
 		<div class="wcse-admin">
 			<p class="description" style="max-width:720px">
-				<?php esc_html_e( 'טופס "עדכנו אותי כשחוזר למלאי" (שם + אימייל + אישור דיוור) מוצג אוטומטית על מוצר/וריאציה שאזלו. כשהמוצר חוזר למלאי — נשלח מייל אוטומטי לכל הנרשמים עם קישור למוצר. אין צורך בשורטקוד.', 'wc-order-upsale' ); ?>
+				<?php esc_html_e( 'טופס "עדכנו אותי כשחוזר למלאי" (שם + אימייל + אישור דיוור) מוצג אוטומטית על מוצר/וריאציה שאזלו. כשהמוצר חוזר למלאי — נשלח מייל אוטומטי לכל הנרשמים עם קישור למוצר.', 'wc-order-upsale' ); ?>
+				<br>
+				<?php esc_html_e( 'אם התבנית או בונה העמודים שלכם בונים את עמוד המוצר בעצמם והטופס לא מופיע במקום הרצוי, אפשר למקם אותו ידנית עם השורטקוד:', 'wc-order-upsale' ); ?>
+				<code>[wcse_back_in_stock]</code>
 			</p>
 
 			<?php if ( ! $this->is_enabled() ) : ?>

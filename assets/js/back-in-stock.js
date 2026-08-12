@@ -28,7 +28,20 @@
 		// variation events — those would immediately hide it again.
 		var followsVariation = $wrap.is( '[hidden]' );
 
+		// Page builders do not always keep the form inside a ".product" ancestor,
+		// and a scoped lookup that comes back empty used to leave the form hidden
+		// for good — so widen the search rather than give up.
 		var $form = $wrap.closest( '.product' ).find( '.variations_form' );
+		if ( ! $form.length ) {
+			$form = $( '.variations_form' ).first();
+		}
+
+		// No variation form at all on a product whose form is waiting for one means
+		// nothing would ever reveal it. Better to show it than to hide it forever.
+		if ( followsVariation && ! $form.length ) {
+			$wrap.removeAttr( 'hidden' ).show();
+			followsVariation = false;
+		}
 
 		// Variable product: toggle by the selected variation's stock state.
 		if ( followsVariation && $form.length ) {
