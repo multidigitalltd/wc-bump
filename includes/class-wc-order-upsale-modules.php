@@ -17,17 +17,27 @@ class WC_Order_Upsale_Modules {
 	/**
 	 * All known modules keyed by id.
 	 *
-	 * @return array<string,array{name:string,description:string,settings_slug:string,icon:string,default:bool}>
+	 * @return array<string,array{name:string,description:string,settings_slug:string,settings_tab?:string,icon:string,default:bool,benefit?:string,benefit_source?:string}>
 	 */
 	public static function definitions(): array {
 		return [
 			'order_upsale'       => [
 				'name'           => __( 'אפסייל בהזמנה', 'wc-order-upsale' ),
-				'description'    => __( 'הצגת מוצרי אפסייל בעמוד הצ׳קאאוט להגדלת ערך ההזמנה, כולל הנחות, תנאי הצגה וסטטיסטיקות.', 'wc-order-upsale' ),
+				'description'    => __( 'הצגת מוצרי אפסייל בעמוד הצ׳קאאוט להגדלת ערך ההזמנה, כולל הנחות, תנאי הצגה, תמיכה במוצרים עם וריאציות וסטטיסטיקות.', 'wc-order-upsale' ),
 				'settings_slug'  => 'wc-order-upsales',
 				'icon'           => 'cart',
-				'default'        => true,
+				'default'        => false,
 				'benefit'        => __( 'הצעה רלוונטית ברגע הקנייה מגדילה את ערך ההזמנה הממוצע (AOV) בלי להביא תנועה חדשה.', 'wc-order-upsale' ),
+				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
+			],
+			'buy_now'            => [
+				'name'           => __( 'כפתור קנה עכשיו', 'wc-order-upsale' ),
+				'description'    => __( 'כפתור "קנה עכשיו" בעמוד המוצר שמדלג על עמוד הסל ומעביר ישירות לצ׳קאאוט.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'buynow',
+				'icon'           => 'money-alt',
+				'default'        => false,
+				'benefit'        => __( 'כל צעד מיותר בדרך לרכישה עולה בהמרות; מסלול קנייה מהיר (בסגנון 1-Click של אמזון) מקצר את המשפך ומעלה השלמת רכישה.', 'wc-order-upsale' ),
 				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
 			],
 			'variation_swatches' => [
@@ -36,7 +46,7 @@ class WC_Order_Upsale_Modules {
 				'settings_slug'  => 'wc-store-enhancer-settings',
 				'settings_tab'   => 'swatches',
 				'icon'           => 'art',
-				'default'        => true,
+				'default'        => false,
 				'benefit'        => __( 'בחירה חזותית של צבע/מידה מפחיתה עומס-החלטה וטעויות מול תפריט נפתח (Baymard, UX עמוד מוצר).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://baymard.com/blog/shipping-speed-vs-delivery-date',
 			],
@@ -46,7 +56,7 @@ class WC_Order_Upsale_Modules {
 				'settings_slug'  => 'wc-store-enhancer-settings',
 				'settings_tab'   => 'delivery',
 				'icon'           => 'calendar-alt',
-				'default'        => true,
+				'default'        => false,
 				'benefit'        => __( 'תאריך אספקה מדויק העלה המרה בצ׳קאאוט ב-13%–25% במבחני A/B; 75% מהקונים מושפעים ממנו ו-40% לא יקנו בלעדיו (Baymard/Narvar).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://baymard.com/blog/shipping-speed-vs-delivery-date',
 			],
@@ -56,7 +66,7 @@ class WC_Order_Upsale_Modules {
 				'settings_slug'  => 'wc-store-enhancer-settings',
 				'settings_tab'   => 'recent',
 				'icon'           => 'backup',
-				'default'        => true,
+				'default'        => false,
 				'benefit'        => __( 'החזרת מבקרים למוצרים שכבר גילו מגדילה גילוי וקנייה חוזרת — לאמזון ~35% מההכנסות מהמלצות (McKinsey).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://www.firney.com/news-and-insights/ai-product-recommendations-from-amazons-35-revenue-model-to-your-e-commerce-platform',
 			],
@@ -66,9 +76,29 @@ class WC_Order_Upsale_Modules {
 				'settings_slug'  => 'wc-store-enhancer-settings',
 				'settings_tab'   => 'backinstock',
 				'icon'           => 'bell',
-				'default'        => true,
+				'default'        => false,
 				'benefit'        => __( 'התראות "חזר למלאי" הן מהסוגים הכי ממירים (20%–35% המרה) ומשחזרות מכירות שאבדו על מידות/צבעים שאזלו (Klaviyo/MarketingSherpa).', 'wc-order-upsale' ),
 				'benefit_source' => 'https://marketingsherpa.com/article/case-study/backinstock-alert-emails-achieve-2245',
+			],
+			'sticky_atc'         => [
+				'name'           => __( 'סרגל הוספה לסל דביק', 'wc-order-upsale' ),
+				'description'    => __( 'סרגל צף עם כפתור "הוסף לסל" בעמוד המוצר (דסקטופ/מובייל), שמופיע כשגוללים מעבר לכפתור הראשי.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'sticky',
+				'icon'           => 'download',
+				'default'        => false,
+				'benefit'        => __( 'מעל 60% מהתנועה מובייל, עם נטישה של 80%–85%; שמירה על כפתור ההוספה נגיש לאורך הגלילה מעלה המרה במובייל (Baymard).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://baymard.com/lists/cart-abandonment-rate',
+			],
+			'abandoned_cart'     => [
+				'name'           => __( 'שחזור עגלות נטושות', 'wc-order-upsale' ),
+				'description'    => __( 'לוכד עגלות של לקוחות שהזינו אימייל בצ׳קאאוט ולא סיימו, ושולח מייל שחזור אוטומטי עם קישור לשחזור הסל.', 'wc-order-upsale' ),
+				'settings_slug'  => 'wc-store-enhancer-settings',
+				'settings_tab'   => 'abandoned',
+				'icon'           => 'email-alt',
+				'default'        => false,
+				'benefit'        => __( 'נטישת עגלה ~75%; מיילי שחזור ממירים ~10% ומובילים משחזרים 10%–14% מהעגלות. מייל תוך שעה = מקסימום כוונת קנייה (Baymard/Rejoiner).', 'wc-order-upsale' ),
+				'benefit_source' => 'https://www.rejoiner.com/resources/abandoned-cart-email-statistics',
 			],
 		];
 	}

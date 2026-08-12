@@ -4,8 +4,13 @@ defined( 'ABSPATH' ) || exit;
 
 class WC_Order_Upsale_Frontend {
 
-	private static ?int  $upsale_product_adding  = null;
-	private static array $upsale_discount_adding = [];
+	/** Config id (variation id, variable parent id or simple product id) being added. */
+	private static ?int  $upsale_product_adding   = null;
+	/** Parent id WooCommerce will actually receive for that add_to_cart() call. */
+	private static int   $upsale_parent_adding    = 0;
+	/** Variation id for that call, 0 for simple products. */
+	private static int   $upsale_variation_adding = 0;
+	private static array $upsale_discount_adding  = [];
 
 	/** Cached settings — avoids repeated get_option() calls per request. */
 	private array $settings;
@@ -35,7 +40,12 @@ class WC_Order_Upsale_Frontend {
 		add_action( 'wp_ajax_order_upsale_toggle',                 [ $this, 'ajax_toggle' ] );
 		add_action( 'wp_ajax_nopriv_order_upsale_toggle',          [ $this, 'ajax_toggle' ] );
 
-		add_filter( 'woocommerce_add_cart_item_data',              [ $this, 'flag_cart_item' ], 10, 2 );
+		// Resolves the chosen attributes of a variable upsale into a variation so
+		// the card can show its real price/stock before the shopper commits.
+		add_action( 'wp_ajax_order_upsale_resolve_variation',        [ $this, 'ajax_resolve_variation' ] );
+		add_action( 'wp_ajax_nopriv_order_upsale_resolve_variation', [ $this, 'ajax_resolve_variation' ] );
+
+		add_filter( 'woocommerce_add_cart_item_data',              [ $this, 'flag_cart_item' ], 10, 3 );
 		// Apply discounted price immediately when the item is first placed in the cart array.
 		add_filter( 'woocommerce_add_cart_item',                   [ $this, 'set_price_on_add' ], 99, 1 );
 		// Restore custom data AND price when cart loads from session.
@@ -68,7 +78,11 @@ class WC_Order_Upsale_Frontend {
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( 'order_upsale_toggle' ),
 			'i18n'    => [
-				'close' => __( 'סגור', 'wc-order-upsale' ),
+				'close'          => __( 'סגור', 'wc-order-upsale' ),
+				'chooseOptions'  => __( 'בחרו את כל האפשרויות כדי להוסיף לסל', 'wc-order-upsale' ),
+				'unavailable'    => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ),
+				'outOfStock'     => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ),
+				'genericError'   => __( 'אירעה שגיאה. נסו שוב.', 'wc-order-upsale' ),
 			],
 		] );
 	}
@@ -191,7 +205,7 @@ class WC_Order_Upsale_Frontend {
 			return;
 		}
 
-		$all_pids = array_column( $active_upsales, 'product_id' );
+		$all_pids = array_map( 'intval', array_column( $active_upsales, 'product_id' ) );
 		$in_cart  = $this->get_upsales_in_cart( $all_pids );
 
 		$heading = ! empty( $this->settings['heading'] )
@@ -205,6 +219,14 @@ class WC_Order_Upsale_Frontend {
 		foreach ( $active_upsales as $upsale ) {
 			$product = wc_get_product( $upsale['product_id'] );
 			if ( ! $product || ! $product->is_purchasable() || ! $product->is_in_stock() ) {
+				continue;
+			}
+
+			// A variable product is offered with its attribute selectors inside the
+			// card; without attributes WooCommerce could never resolve a variation,
+			// so such a product is not offerable here.
+			$variation_attributes = $product->is_type( 'variable' ) ? $product->get_variation_attributes() : [];
+			if ( $product->is_type( 'variable' ) && empty( $variation_attributes ) ) {
 				continue;
 			}
 
@@ -263,6 +285,12 @@ class WC_Order_Upsale_Frontend {
 					<?php endif; ?>
 					<div class="order-upsale-content">
 						<p class="order-upsale-title"><?php echo wp_kses( $title, WC_Order_Upsale_Admin::allowed_inline_html() ); ?></p>
+						<?php if ( $product->is_type( 'variation' ) ) : ?>
+							<?php $variation_summary = wc_get_formatted_variation( $product, true, false ); ?>
+							<?php if ( $variation_summary ) : ?>
+								<p class="order-upsale-variation-summary"><?php echo esc_html( $variation_summary ); ?></p>
+							<?php endif; ?>
+						<?php endif; ?>
 						<?php if ( $description ) : ?>
 							<p class="order-upsale-description"><?php echo wp_kses( $description, WC_Order_Upsale_Admin::allowed_inline_html() ); ?></p>
 						<?php endif; ?>
@@ -277,6 +305,12 @@ class WC_Order_Upsale_Frontend {
 					</div>
 				</div>
 
+				<?php if ( ! empty( $variation_attributes ) ) : ?>
+					<?php $this->render_variation_selects( $product, $variation_attributes, (string) $product_id ); ?>
+				<?php endif; ?>
+
+				<p class="order-upsale-msg" role="alert" hidden></p>
+
 				<button type="button"
 					class="order-upsale-btn<?php echo $is_added ? ' is-added' : ''; ?>"
 					data-product-id="<?php echo esc_attr( $product_id ); ?>"
@@ -284,6 +318,8 @@ class WC_Order_Upsale_Frontend {
 					data-quantity="<?php echo esc_attr( $upsale['quantity'] ?? 1 ); ?>"
 					data-add-text="<?php echo esc_attr( $button_text ); ?>"
 					data-remove-text="<?php echo esc_attr( $button_remove_text ); ?>"
+					<?php echo ! empty( $variation_attributes ) ? ' data-variable="1"' : ''; ?>
+					<?php echo ( ! empty( $variation_attributes ) && ! $is_added ) ? ' disabled' : ''; ?>
 					aria-pressed="<?php echo $is_added ? 'true' : 'false'; ?>">
 					<?php echo esc_html( $active_btn_text ); ?>
 				</button>
@@ -305,6 +341,129 @@ class WC_Order_Upsale_Frontend {
 			echo $output; // phpcs:ignore WordPress.Security.EscapeOutput
 			echo '</section>';
 		}
+	}
+
+	/**
+	 * Attribute selectors for a variable upsale, rendered inside the card so the
+	 * shopper can pick a variation without leaving the checkout.
+	 *
+	 * @param WC_Product            $product    The variable parent product.
+	 * @param array<string,array>   $attributes Attribute name => available option values.
+	 * @param string                $uid        Unique suffix for label/select ids.
+	 */
+	private function render_variation_selects( WC_Product $product, array $attributes, string $uid ): void {
+		echo '<div class="order-upsale-variations">';
+
+		foreach ( $attributes as $attribute_name => $options ) {
+			$key      = wc_variation_attribute_name( $attribute_name );
+			$field_id = 'upsale-attr-' . sanitize_html_class( $uid . '-' . $key );
+			?>
+			<p class="order-upsale-variation-field">
+				<label for="<?php echo esc_attr( $field_id ); ?>">
+					<?php echo esc_html( wc_attribute_label( $attribute_name, $product ) ); ?>
+				</label>
+				<select id="<?php echo esc_attr( $field_id ); ?>"
+					class="order-upsale-attr"
+					data-attribute="<?php echo esc_attr( $key ); ?>">
+					<option value="">
+						<?php
+						/* translators: %s: attribute name, e.g. "Colour". */
+						printf( esc_html__( 'בחרו %s', 'wc-order-upsale' ), esc_html( wc_attribute_label( $attribute_name, $product ) ) );
+						?>
+					</option>
+					<?php
+					if ( taxonomy_exists( $attribute_name ) ) {
+						$terms = wc_get_product_terms( $product->get_id(), $attribute_name, [ 'fields' => 'all' ] );
+						foreach ( $terms as $term ) {
+							if ( ! in_array( $term->slug, $options, true ) ) {
+								continue;
+							}
+							printf(
+								'<option value="%s">%s</option>',
+								esc_attr( $term->slug ),
+								esc_html( apply_filters( 'woocommerce_variation_option_name', $term->name, $term, $attribute_name, $product ) )
+							);
+						}
+					} else {
+						foreach ( $options as $option ) {
+							printf(
+								'<option value="%s">%s</option>',
+								esc_attr( $option ),
+								esc_html( apply_filters( 'woocommerce_variation_option_name', $option, null, $attribute_name, $product ) )
+							);
+						}
+					}
+					?>
+				</select>
+			</p>
+			<?php
+		}
+
+		echo '</div>';
+	}
+
+	/**
+	 * The upsale id a cart item belongs to.
+	 *
+	 * WooCommerce always stores the parent id in product_id, so a variation-based
+	 * upsale has to be matched on variation_id. The id the upsale was configured
+	 * with is stamped onto the item on add, and is authoritative when present.
+	 *
+	 * @param array $item Cart item.
+	 */
+	private static function cart_item_upsale_id( array $item ): int {
+		if ( ! empty( $item['_order_upsale_id'] ) ) {
+			return (int) $item['_order_upsale_id'];
+		}
+		$variation_id = (int) ( $item['variation_id'] ?? 0 );
+		return $variation_id ?: (int) ( $item['product_id'] ?? 0 );
+	}
+
+	/** The active upsale configured for a given product/variation id, if any. */
+	private function find_config( int $product_id ): ?array {
+		foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
+			if ( (int) ( $upsale['product_id'] ?? 0 ) === $product_id && ! empty( $upsale['active'] ) ) {
+				return $upsale;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Keep only well-formed "attribute_*" pairs from a submitted attribute map.
+	 *
+	 * @param mixed $raw Raw request value.
+	 * @return array<string,string>
+	 */
+	private function sanitize_attributes( $raw ): array {
+		$clean = [];
+		foreach ( (array) $raw as $key => $value ) {
+			if ( ! is_scalar( $value ) || ! is_string( $key ) ) {
+				continue;
+			}
+			if ( 0 !== strpos( $key, 'attribute_' ) ) {
+				continue;
+			}
+			$clean[ sanitize_text_field( $key ) ] = sanitize_text_field( (string) $value );
+		}
+		return $clean;
+	}
+
+	/** Resolve chosen attributes to a variation id, or 0 when nothing matches. */
+	private function match_variation( WC_Product $product, array $attributes ): int {
+		if ( ! $product->is_type( 'variable' ) || empty( $attributes ) ) {
+			return 0;
+		}
+		// Every attribute must be answered; "any" variations are handled by the
+		// data store, but a blank select means the shopper has not chosen yet.
+		foreach ( array_keys( $product->get_variation_attributes() ) as $attribute_name ) {
+			$key = wc_variation_attribute_name( $attribute_name );
+			if ( '' === ( $attributes[ $key ] ?? '' ) ) {
+				return 0;
+			}
+		}
+
+		return (int) WC_Data_Store::load( 'product' )->find_matching_product_variation( $product, $attributes );
 	}
 
 	private function build_inline_style( array $style ): string {
@@ -340,7 +499,9 @@ class WC_Order_Upsale_Frontend {
 		}
 
 		foreach ( WC()->cart->get_cart() as $item ) {
-			if ( $type === 'if_product'  && (int) $item['product_id'] === $value ) {
+			// The condition may point at a variable parent or at one variation.
+			if ( $type === 'if_product'
+				&& ( (int) $item['product_id'] === $value || (int) ( $item['variation_id'] ?? 0 ) === $value ) ) {
 				return true;
 			}
 			if ( $type === 'if_category' && has_term( $value, 'product_cat', $item['product_id'] ) ) {
@@ -359,14 +520,36 @@ class WC_Order_Upsale_Frontend {
 			return $product->get_price_html();
 		}
 
-		$original  = (float) $product->get_regular_price() ?: (float) $product->get_price();
-		$new_price = $type === 'percent'
-			? $original * ( 1 - $value / 100 )
-			: $original - $value;
+		// A variable parent has no single price — show the discounted range until
+		// the shopper picks a variation, at which point the card refreshes.
+		if ( $product->is_type( 'variable' ) ) {
+			$min = (float) $product->get_variation_regular_price( 'min', true );
+			$max = (float) $product->get_variation_regular_price( 'max', true );
+			if ( $min <= 0 && $max <= 0 ) {
+				return $product->get_price_html();
+			}
+			return '<del>' . $this->format_range( $min, $max ) . '</del> <ins>'
+				. $this->format_range( $this->discounted( $min, $type, $value ), $this->discounted( $max, $type, $value ) )
+				. '</ins>';
+		}
 
-		$new_price = max( 0, round( $new_price, wc_get_price_decimals() ) );
+		$original = (float) $product->get_regular_price() ?: (float) $product->get_price();
 
-		return '<del>' . wc_price( $original ) . '</del> <ins>' . wc_price( $new_price ) . '</ins>';
+		return '<del>' . wc_price( $original ) . '</del> <ins>'
+			. wc_price( $this->discounted( $original, $type, $value ) ) . '</ins>';
+	}
+
+	/** Apply a percent/fixed discount to a price, floored at zero. */
+	private function discounted( float $price, string $type, float $value ): float {
+		$new = $type === 'percent' ? $price * ( 1 - $value / 100 ) : $price - $value;
+		return max( 0, round( $new, wc_get_price_decimals() ) );
+	}
+
+	/** "₪10" for a single price, "₪10 – ₪20" for a range. */
+	private function format_range( float $min, float $max ): string {
+		return $min === $max
+			? wc_price( $min )
+			: wc_price( $min ) . ' &ndash; ' . wc_price( $max );
 	}
 
 	private function get_upsales_in_cart( array $product_ids ): array {
@@ -375,24 +558,45 @@ class WC_Order_Upsale_Frontend {
 		}
 		$in_cart = [];
 		foreach ( WC()->cart->get_cart() as $key => $item ) {
-			$pid = (int) $item['product_id'];
-			if ( in_array( $pid, $product_ids, true ) && ! isset( $in_cart[ $pid ] ) ) {
-				$in_cart[ $pid ] = $key;
+			$uid = self::cart_item_upsale_id( $item );
+			if ( in_array( $uid, $product_ids, true ) && ! isset( $in_cart[ $uid ] ) ) {
+				$in_cart[ $uid ] = $key;
 			}
 		}
 		return $in_cart;
 	}
 
-	public function flag_cart_item( array $data, int $product_id ): array {
-		// Loose comparison — WC may pass product_id as string in some contexts.
-		if ( self::$upsale_product_adding == $product_id ) {
-			$data['_order_upsale'] = true;
-			if ( ! empty( self::$upsale_discount_adding ) ) {
-				$data['_upsale_discount'] = self::$upsale_discount_adding;
-			}
-			self::$upsale_product_adding  = null;
-			self::$upsale_discount_adding = [];
+	/**
+	 * Stamp the upsale flag onto the cart item we are adding.
+	 *
+	 * WooCommerce rewrites a variation add into parent + variation id, so the
+	 * call is identified by that pair rather than by the configured id, and the
+	 * configured id is stored alongside for every later lookup.
+	 *
+	 * @param array      $data         Cart item data.
+	 * @param int|string $product_id   Parent product id.
+	 * @param int|string $variation_id Variation id, 0 for simple products.
+	 */
+	public function flag_cart_item( array $data, $product_id, $variation_id = 0 ): array {
+		if ( null === self::$upsale_product_adding ) {
+			return $data;
 		}
+		if ( (int) $product_id !== self::$upsale_parent_adding
+			|| (int) $variation_id !== self::$upsale_variation_adding ) {
+			return $data;
+		}
+
+		$data['_order_upsale']    = true;
+		$data['_order_upsale_id'] = self::$upsale_product_adding;
+		if ( ! empty( self::$upsale_discount_adding ) ) {
+			$data['_upsale_discount'] = self::$upsale_discount_adding;
+		}
+
+		self::$upsale_product_adding   = null;
+		self::$upsale_parent_adding    = 0;
+		self::$upsale_variation_adding = 0;
+		self::$upsale_discount_adding  = [];
+
 		return $data;
 	}
 
@@ -413,6 +617,9 @@ class WC_Order_Upsale_Frontend {
 	public function restore_cart_item_data( array $item, array $values ): array {
 		if ( ! empty( $values['_order_upsale'] ) ) {
 			$item['_order_upsale'] = true;
+		}
+		if ( ! empty( $values['_order_upsale_id'] ) ) {
+			$item['_order_upsale_id'] = (int) $values['_order_upsale_id'];
 		}
 		if ( ! empty( $values['_upsale_discount'] ) && is_array( $values['_upsale_discount'] ) ) {
 			$item['_upsale_discount'] = $values['_upsale_discount'];
@@ -438,10 +645,7 @@ class WC_Order_Upsale_Frontend {
 		if ( $base <= 0 ) {
 			return;
 		}
-		$new = $type === 'percent'
-			? $base * ( 1 - $value / 100 )
-			: $base - $value;
-		$product->set_price( max( 0, round( $new, wc_get_price_decimals() ) ) );
+		$product->set_price( $this->discounted( $base, $type, $value ) );
 	}
 
 	/**
@@ -469,7 +673,7 @@ class WC_Order_Upsale_Frontend {
 				continue;
 			}
 
-			$pid      = (int) $item['product_id'];
+			$pid      = self::cart_item_upsale_id( $item );
 			$discount = ! empty( $item['_upsale_discount'] )
 				? $item['_upsale_discount']
 				: ( $config_map[ $pid ] ?? [] );
@@ -480,6 +684,51 @@ class WC_Order_Upsale_Frontend {
 
 			$this->apply_price_to_product( $item['data'], $discount );
 		}
+	}
+
+	/**
+	 * Report the price and stock of the variation matching the chosen attributes,
+	 * so the card can update before the shopper commits to adding it.
+	 */
+	public function ajax_resolve_variation(): void {
+		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
+
+		$product_id = absint( $_POST['product_id'] ?? 0 );
+		$attributes = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
+
+		$config = $product_id ? $this->find_config( $product_id ) : null;
+		if ( ! $config ) {
+			wp_send_json_error( [ 'message' => __( 'המוצר אינו מוגדר כאפסייל', 'wc-order-upsale' ) ] );
+		}
+
+		$product = wc_get_product( $product_id );
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
+			wp_send_json_error( [ 'message' => __( 'למוצר זה אין אפשרויות לבחירה', 'wc-order-upsale' ) ] );
+		}
+
+		$variation = $this->resolve_variation( $product, $attributes );
+		if ( ! $variation ) {
+			wp_send_json_error( [ 'message' => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ) ] );
+		}
+
+		wp_send_json_success( [
+			'variation_id' => $variation->get_id(),
+			'price_html'   => $this->get_price_html( $variation, $config ),
+			'in_stock'     => $variation->is_in_stock(),
+		] );
+	}
+
+	/**
+	 * The purchasable variation for a set of attributes, or null when the
+	 * combination does not exist or cannot be bought.
+	 */
+	private function resolve_variation( WC_Product $product, array $attributes ): ?WC_Product {
+		$variation_id = $this->match_variation( $product, $attributes );
+		if ( ! $variation_id ) {
+			return null;
+		}
+		$variation = wc_get_product( $variation_id );
+		return ( $variation && $variation->is_purchasable() ) ? $variation : null;
 	}
 
 	public function ajax_toggle(): void {
@@ -493,15 +742,7 @@ class WC_Order_Upsale_Frontend {
 			wp_send_json_error( [ 'message' => 'Invalid request' ] );
 		}
 
-		$upsales       = WC_Order_Upsale_Admin::get_upsales();
-		$upsale_config = null;
-		foreach ( $upsales as $upsale ) {
-			if ( (int) ( $upsale['product_id'] ?? 0 ) === $product_id && ! empty( $upsale['active'] ) ) {
-				$upsale_config = $upsale;
-				break;
-			}
-		}
-
+		$upsale_config = $this->find_config( $product_id );
 		if ( $upsale_config === null ) {
 			wp_send_json_error( [ 'message' => 'Product not configured as upsale' ] );
 		}
@@ -509,37 +750,87 @@ class WC_Order_Upsale_Frontend {
 		$quantity = max( 1, absint( $upsale_config['quantity'] ?? 1 ) );
 
 		if ( $toggle === 'add' ) {
-			$discount = [];
-			$type     = $upsale_config['discount_type']  ?? 'none';
-			$val      = (float) ( $upsale_config['discount_value'] ?? 0 );
-			if ( $type !== 'none' && $val > 0 ) {
-				$discount = [ 'type' => $type, 'value' => $val ];
+			$this->handle_add( $product_id, $quantity, $upsale_config );
+		}
+
+		if ( $cart_item_key ) {
+			$cart_item = WC()->cart->get_cart_item( $cart_item_key );
+			if ( ! $cart_item || self::cart_item_upsale_id( $cart_item ) !== $product_id ) {
+				wp_send_json_error( [ 'message' => 'Invalid cart item' ] );
 			}
+			WC()->cart->remove_cart_item( $cart_item_key );
+			WC()->cart->calculate_totals();
+		}
+		wp_send_json_success();
+	}
 
-			self::$upsale_product_adding  = $product_id;
-			self::$upsale_discount_adding = $discount;
+	/**
+	 * Add an upsale to the cart, resolving a variation first when the configured
+	 * product is variable (or is itself a variation). Always ends the request.
+	 *
+	 * @param int   $product_id The configured upsale id.
+	 * @param int   $quantity   Configured quantity.
+	 * @param array $config     The upsale configuration.
+	 */
+	private function handle_add( int $product_id, int $quantity, array $config ): void {
+		$product = wc_get_product( $product_id );
+		if ( ! $product ) {
+			wp_send_json_error( [ 'message' => __( 'לא ניתן להוסיף את המוצר לסל', 'wc-order-upsale' ) ] );
+		}
 
-			$new_key = WC()->cart->add_to_cart( $product_id, $quantity );
+		$parent_id    = $product_id;
+		$variation_id = 0;
+		$attributes   = [];
 
-			if ( $new_key ) {
-				WC()->cart->calculate_totals();
-				WC_Order_Upsale_Analytics::record_add_to_cart( $product_id );
-				wp_send_json_success( [ 'cart_item_key' => $new_key ] );
-			} else {
-				self::$upsale_product_adding  = null;
-				self::$upsale_discount_adding = [];
+		if ( $product->is_type( 'variable' ) ) {
+			// The shopper picks the variation in the card; resolve it server-side
+			// so a tampered request can never add an arbitrary variation.
+			$chosen    = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
+			$variation = $this->resolve_variation( $product, $chosen );
+			if ( ! $variation ) {
+				wp_send_json_error( [ 'message' => __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' ) ] );
+			}
+			if ( ! $variation->is_in_stock() ) {
+				wp_send_json_error( [ 'message' => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ) ] );
+			}
+			$variation_id = $variation->get_id();
+			$attributes   = $chosen;
+		} elseif ( $product->is_type( 'variation' ) ) {
+			// A specific variation was configured — WooCommerce needs the parent id
+			// plus the variation's own attributes to place it in the cart.
+			$parent_id    = $product->get_parent_id();
+			$variation_id = $product_id;
+			$attributes   = $product->get_variation_attributes();
+			if ( ! $parent_id ) {
 				wp_send_json_error( [ 'message' => __( 'לא ניתן להוסיף את המוצר לסל', 'wc-order-upsale' ) ] );
 			}
-		} else {
-			if ( $cart_item_key ) {
-				$cart_item = WC()->cart->get_cart_item( $cart_item_key );
-				if ( ! $cart_item || (int) $cart_item['product_id'] !== $product_id ) {
-					wp_send_json_error( [ 'message' => 'Invalid cart item' ] );
-				}
-				WC()->cart->remove_cart_item( $cart_item_key );
-				WC()->cart->calculate_totals();
-			}
-			wp_send_json_success();
 		}
+
+		$discount = [];
+		$type     = $config['discount_type'] ?? 'none';
+		$val      = (float) ( $config['discount_value'] ?? 0 );
+		if ( $type !== 'none' && $val > 0 ) {
+			$discount = [ 'type' => $type, 'value' => $val ];
+		}
+
+		self::$upsale_product_adding   = $product_id;
+		self::$upsale_parent_adding    = $parent_id;
+		self::$upsale_variation_adding = $variation_id;
+		self::$upsale_discount_adding  = $discount;
+
+		$new_key = WC()->cart->add_to_cart( $parent_id, $quantity, $variation_id, $attributes );
+
+		self::$upsale_product_adding   = null;
+		self::$upsale_parent_adding    = 0;
+		self::$upsale_variation_adding = 0;
+		self::$upsale_discount_adding  = [];
+
+		if ( ! $new_key ) {
+			wp_send_json_error( [ 'message' => __( 'לא ניתן להוסיף את המוצר לסל', 'wc-order-upsale' ) ] );
+		}
+
+		WC()->cart->calculate_totals();
+		WC_Order_Upsale_Analytics::record_add_to_cart( $product_id );
+		wp_send_json_success( [ 'cart_item_key' => $new_key ] );
 	}
 }
