@@ -514,44 +514,62 @@ class WC_Order_Upsale_Backinstock {
 	}
 
 	/**
-	 * Honour an unsubscribe link. Removes every pending subscription for that
-	 * address — someone asking to stop hearing from us means all of them, not
-	 * just the one product whose mail they happened to open.
+	 * Honour an unsubscribe link.
+	 *
+	 * Following the link only asks for confirmation; the removal happens on the
+	 * POST that the confirmation button sends. Mail-security scanners and
+	 * link-preview services fetch every URL in a message, so deleting on the GET
+	 * would opt customers out before they ever opened the e-mail.
+	 *
+	 * Confirming removes every pending subscription for that address — someone
+	 * asking to stop hearing from us means all of them, not just the one product
+	 * whose mail they happened to open.
 	 */
 	public function handle_unsubscribe(): void {
-		if ( empty( $_GET['wcse_bis_unsub'] ) || empty( $_GET['key'] ) ) {
+		$id  = absint( $_REQUEST['wcse_bis_unsub'] ?? 0 );
+		$key = isset( $_REQUEST['key'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['key'] ) ) : '';
+
+		if ( ! $id || '' === $key ) {
 			return;
 		}
 
 		global $wpdb;
 		$table = self::table();
-		$id    = absint( $_GET['wcse_bis_unsub'] );
-		$key   = sanitize_text_field( wp_unslash( $_GET['key'] ) );
-
-		$email = $id ? (string) $wpdb->get_var( $wpdb->prepare( "SELECT email FROM {$table} WHERE id = %d", $id ) ) : ''; // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$email = (string) $wpdb->get_var( $wpdb->prepare( "SELECT email FROM {$table} WHERE id = %d", $id ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 
 		// hash_equals keeps the comparison constant-time; an already-removed row
 		// yields an empty address and simply fails the check.
 		$valid = '' !== $email && hash_equals( $this->unsubscribe_key( $id, $email ), $key );
+		$title = __( 'הסרה מרשימת העדכונים', 'wc-order-upsale' );
+		$args  = [ 'response' => 200, 'back_link' => false ];
 
-		if ( $valid ) {
-			$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE email = %s AND notified_at IS NULL", $email ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-			$wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		if ( ! $valid ) {
+			wp_die( esc_html__( 'הקישור אינו תקף או שכבר הוסרתם מהרשימה.', 'wc-order-upsale' ), esc_html( $title ), $args );
 		}
 
-		$message = $valid
-			? __( 'הוסרתם מרשימת העדכונים. לא נשלח לכם עוד הודעות על חזרה למלאי.', 'wc-order-upsale' )
-			: __( 'הקישור אינו תקף או שכבר הוסרתם מהרשימה.', 'wc-order-upsale' );
+		if ( 'POST' !== strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) ) ) {
+			$html  = '<p>' . esc_html( sprintf(
+				/* translators: %s: e-mail address */
+				__( 'להסיר את %s מרשימת העדכונים על חזרה למלאי?', 'wc-order-upsale' ),
+				$email
+			) ) . '</p>';
+			$html .= '<form method="post" action="' . esc_url( $this->unsubscribe_url( $id, $email ) ) . '">';
+			$html .= '<input type="hidden" name="wcse_bis_unsub" value="' . esc_attr( (string) $id ) . '">';
+			$html .= '<input type="hidden" name="key" value="' . esc_attr( $key ) . '">';
+			$html .= '<p><button type="submit">' . esc_html__( 'כן, הסירו אותי', 'wc-order-upsale' ) . '</button></p>';
+			$html .= '</form>';
+			$html .= '<p><a href="' . esc_url( home_url( '/' ) ) . '">' . esc_html__( 'חזרה לחנות', 'wc-order-upsale' ) . '</a></p>';
+
+			wp_die( $html, esc_html( $title ), $args ); // phpcs:ignore WordPress.Security.EscapeOutput
+		}
+
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE email = %s AND notified_at IS NULL", $email ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 
 		wp_die(
-			esc_html( $message ),
-			esc_html__( 'הסרה מרשימת העדכונים', 'wc-order-upsale' ),
-			[
-				'response'  => 200,
-				'back_link' => false,
-				'link_url'  => home_url( '/' ),
-				'link_text' => __( 'חזרה לחנות', 'wc-order-upsale' ),
-			]
+			esc_html__( 'הוסרתם מרשימת העדכונים. לא נשלח לכם עוד הודעות על חזרה למלאי.', 'wc-order-upsale' ),
+			esc_html( $title ),
+			$args + [ 'link_url' => home_url( '/' ), 'link_text' => __( 'חזרה לחנות', 'wc-order-upsale' ) ]
 		);
 	}
 

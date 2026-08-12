@@ -25,22 +25,21 @@ jQuery( function ( $ ) {
 		}
 	}
 
-	/**
-	 * An expired nonce makes admin-ajax answer with a bare "-1" instead of JSON,
-	 * which otherwise surfaces as a misleading "combination unavailable".
-	 */
-	function isExpired( response ) {
-		return response === -1 || response === '-1' || response === 0 || response === '0';
-	}
-
 	/** Reports a failed response, preferring the server's own explanation. */
 	function showFailure( $item, response, fallback ) {
-		if ( isExpired( response ) ) {
-			showMessage( $item, wcOrderUpsale.i18n.expired );
-			return;
-		}
 		var data = response && response.data;
 		showMessage( $item, ( data && data.message ) || fallback );
+	}
+
+	/**
+	 * Reports a transport-level failure. An expired nonce is rejected by
+	 * check_ajax_referer() with wp_die( -1, 403 ), so it arrives here and not as a
+	 * JSON body — reporting it as "combination unavailable" pointed at the wrong
+	 * problem entirely, and "try again" never works until the page is reloaded.
+	 */
+	function showTransportFailure( $item, jqXHR ) {
+		var expired = jqXHR && ( 403 === jqXHR.status || '-1' === $.trim( jqXHR.responseText || '' ) );
+		showMessage( $item, expired ? wcOrderUpsale.i18n.expired : wcOrderUpsale.i18n.genericError );
 	}
 
 	// Refresh price and availability whenever a variation choice changes.
@@ -85,8 +84,8 @@ jQuery( function ( $ ) {
 				showMessage( $item, wcOrderUpsale.i18n.outOfStock );
 			}
 		} )
-		.fail( function () {
-			showMessage( $item, wcOrderUpsale.i18n.genericError );
+		.fail( function ( jqXHR ) {
+			showTransportFailure( $item, jqXHR );
 		} );
 	} );
 
@@ -139,6 +138,9 @@ jQuery( function ( $ ) {
 			}
 
 			$( document.body ).trigger( 'update_checkout' );
+		} )
+		.fail( function ( jqXHR ) {
+			showTransportFailure( $item, jqXHR );
 		} )
 		.always( function () {
 			$btn.removeClass( 'is-loading' );

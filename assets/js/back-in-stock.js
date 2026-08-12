@@ -74,17 +74,15 @@
 					$msg.text( ( res.data && res.data.message ) || i18n.success || '' ).show();
 					return;
 				}
-				// A page served from cache long enough for its nonce to expire makes
-				// admin-ajax answer with a bare "-1"; say so instead of "try again",
-				// which never works until the page is reloaded.
-				var expired = res === -1 || res === '-1' || res === 0 || res === '0';
-				var text = expired
-					? ( i18n.expired || i18n.error )
-					: ( ( res && res.data && res.data.message ) || i18n.error || 'Error' );
-				$msg.text( text || 'Error' ).show();
+				$msg.text( ( res && res.data && res.data.message ) || i18n.error || 'Error' ).show();
 				$btn.prop( 'disabled', false );
-			} ).fail( function () {
-				$msg.text( i18n.error || 'Error' ).show();
+			} ).fail( function ( jqXHR ) {
+				// A page served from cache long enough for its nonce to expire is
+				// rejected by check_ajax_referer() with wp_die( -1, 403 ), so it lands
+				// here rather than in .done(). Saying "try again" would be useless
+				// advice — nothing works until the page is reloaded.
+				var expired = jqXHR && ( 403 === jqXHR.status || '-1' === $.trim( jqXHR.responseText || '' ) );
+				$msg.text( ( expired ? i18n.expired : i18n.error ) || 'Error' ).show();
 				$btn.prop( 'disabled', false );
 			} );
 		} );
