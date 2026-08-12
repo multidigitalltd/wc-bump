@@ -23,7 +23,7 @@ class WC_Order_Upsale_Modules {
 		return [
 			'order_upsale'       => [
 				'name'           => __( 'אפסייל בהזמנה', 'wc-order-upsale' ),
-				'description'    => __( 'הצגת מוצרי אפסייל בעמוד הצ׳קאאוט להגדלת ערך ההזמנה, כולל הנחות, תנאי הצגה וסטטיסטיקות.', 'wc-order-upsale' ),
+				'description'    => __( 'הצגת מוצרי אפסייל בעמוד הצ׳קאאוט להגדלת ערך ההזמנה, כולל הנחות, תנאי הצגה, תמיכה במוצרים עם וריאציות וסטטיסטיקות.', 'wc-order-upsale' ),
 				'settings_slug'  => 'wc-order-upsales',
 				'icon'           => 'cart',
 				'default'        => false,

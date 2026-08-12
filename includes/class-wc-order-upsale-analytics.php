@@ -275,6 +275,11 @@ class WC_Order_Upsale_Analytics {
 		if ( ! empty( $values['_order_upsale'] ) ) {
 			$item->add_meta_data( '_order_upsale', 1, true );
 		}
+		// Stats are keyed by the id the upsale was configured with, which for a
+		// variation-based upsale is neither the line's product nor its parent.
+		if ( ! empty( $values['_order_upsale_id'] ) ) {
+			$item->add_meta_data( '_order_upsale_id', (int) $values['_order_upsale_id'], true );
+		}
 	}
 
 	/**
@@ -298,7 +303,13 @@ class WC_Order_Upsale_Analytics {
 			if ( ! $item->get_meta( '_order_upsale' ) ) {
 				continue;
 			}
-			self::record_conversion( $item->get_product_id(), (float) $item->get_total(), 1 );
+			$upsale_id = (int) $item->get_meta( '_order_upsale_id' );
+			if ( ! $upsale_id ) {
+				// Pre-1.13 orders carry no id; fall back to the line's own product.
+				$upsale_id = (int) $item->get_variation_id() ?: (int) $item->get_product_id();
+			}
+
+			self::record_conversion( $upsale_id, (float) $item->get_total(), 1 );
 			$recorded = true;
 		}
 

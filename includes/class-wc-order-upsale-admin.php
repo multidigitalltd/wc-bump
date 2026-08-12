@@ -401,6 +401,11 @@ class WC_Order_Upsale_Admin {
 									</option>
 								<?php endif; ?>
 							</select>
+							<p class="description">
+								<?php esc_html_e( 'מוצר עם וריאציות ניתן להוסיף בשתי דרכים:', 'wc-order-upsale' ); ?><br>
+								<?php esc_html_e( '• בחירת המוצר הראשי — הלקוח יבחר את הווריאציה (מידה/צבע) בתוך כרטיס האפסייל בצ׳קאאוט.', 'wc-order-upsale' ); ?><br>
+								<?php esc_html_e( '• בחירת וריאציה מסוימת מהרשימה — האפסייל יציע בדיוק אותה, ללא בחירה של הלקוח.', 'wc-order-upsale' ); ?>
+							</p>
 						</td>
 					</tr>
 

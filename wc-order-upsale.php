@@ -2,7 +2,7 @@
 /**
  * Plugin Name: משפר חנויות ווקומרס
  * Description: משפר חנויות ווקומרס — אפסייל בצ'קאאוט + הצגת וריאציות המוצר ככפתורים יפים (מידה, אורך, צבע).
- * Version: 1.12.0
+ * Version: 1.13.0
  * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -27,7 +27,7 @@ if ( defined( 'WC_ORDER_UPSALE_VERSION' ) ) {
 	return;
 }
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.12.0' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.13.0' );
 define( 'WC_ORDER_UPSALE_FILE', __FILE__ );
 define( 'WC_ORDER_UPSALE_BASENAME', plugin_basename( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );

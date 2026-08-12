@@ -1,5 +1,77 @@
 jQuery( function ( $ ) {
 
+	// ── Variable upsales: attribute selection ─────────────────
+
+	/** Reads the attribute selects of a card. */
+	function readAttributes( $item ) {
+		var attrs    = {};
+		var complete = true;
+
+		$item.find( '.order-upsale-attr' ).each( function () {
+			var value = $( this ).val() || '';
+			if ( ! value ) complete = false;
+			attrs[ $( this ).data( 'attribute' ) ] = value;
+		} );
+
+		return { attrs: attrs, complete: complete };
+	}
+
+	function showMessage( $item, text ) {
+		var $msg = $item.find( '.order-upsale-msg' );
+		if ( text ) {
+			$msg.text( text ).prop( 'hidden', false );
+		} else {
+			$msg.text( '' ).prop( 'hidden', true );
+		}
+	}
+
+	// Refresh price and availability whenever a variation choice changes.
+	$( document ).on( 'change', '.order-upsale-attr', function () {
+		var $item  = $( this ).closest( '.order-upsale-item' );
+		var $btn   = $item.find( '.order-upsale-btn' );
+		var $price = $item.find( '.order-upsale-price' );
+		var chosen = readAttributes( $item );
+
+		// Remember the parent's price range so clearing a select can restore it.
+		if ( typeof $price.data( 'defaultHtml' ) === 'undefined' ) {
+			$price.data( 'defaultHtml', $price.html() );
+		}
+
+		if ( ! chosen.complete ) {
+			$btn.prop( 'disabled', true );
+			$price.html( $price.data( 'defaultHtml' ) );
+			showMessage( $item, '' );
+			return;
+		}
+
+		$btn.prop( 'disabled', true );
+		showMessage( $item, '' );
+
+		$.post( wcOrderUpsale.ajaxUrl, {
+			action:     'order_upsale_resolve_variation',
+			nonce:      wcOrderUpsale.nonce,
+			product_id: $btn.data( 'product-id' ),
+			attributes: chosen.attrs,
+		} )
+		.done( function ( response ) {
+			if ( ! response.success ) {
+				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.unavailable );
+				return;
+			}
+
+			$price.html( response.data.price_html );
+
+			if ( response.data.in_stock ) {
+				$btn.prop( 'disabled', false );
+			} else {
+				showMessage( $item, wcOrderUpsale.i18n.outOfStock );
+			}
+		} )
+		.fail( function () {
+			showMessage( $item, wcOrderUpsale.i18n.genericError );
+		} );
+	} );
+
 	// ── Add / Remove upsale from cart ─────────────────────────
 	$( document ).on( 'click', '.order-upsale-btn', function () {
 		var $btn        = $( this );
@@ -8,6 +80,12 @@ jQuery( function ( $ ) {
 		var cartItemKey = $btn.data( 'cart-item-key' ) || '';
 		var isAdded     = $btn.hasClass( 'is-added' );
 		var toggle      = isAdded ? 'remove' : 'add';
+		var chosen      = readAttributes( $item );
+
+		if ( toggle === 'add' && $btn.data( 'variable' ) && ! chosen.complete ) {
+			showMessage( $item, wcOrderUpsale.i18n.chooseOptions );
+			return;
+		}
 
 		$btn.prop( 'disabled', true ).addClass( 'is-loading' );
 
@@ -17,9 +95,15 @@ jQuery( function ( $ ) {
 			product_id:    productId,
 			toggle:        toggle,
 			cart_item_key: cartItemKey,
+			attributes:    chosen.attrs,
 		} )
 		.done( function ( response ) {
-			if ( ! response.success ) return;
+			if ( ! response.success ) {
+				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.genericError );
+				return;
+			}
+
+			showMessage( $item, '' );
 
 			if ( toggle === 'add' ) {
 				var newKey = response.data.cart_item_key;
@@ -39,7 +123,12 @@ jQuery( function ( $ ) {
 			$( document.body ).trigger( 'update_checkout' );
 		} )
 		.always( function () {
-			$btn.prop( 'disabled', false ).removeClass( 'is-loading' );
+			$btn.removeClass( 'is-loading' );
+			// A variable card stays locked until every option is picked again.
+			$btn.prop(
+				'disabled',
+				!! $btn.data( 'variable' ) && ! $btn.hasClass( 'is-added' ) && ! readAttributes( $item ).complete
+			);
 		} );
 	} );
 
