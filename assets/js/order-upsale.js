@@ -16,13 +16,10 @@ jQuery( function ( $ ) {
 		return { attrs: attrs, complete: complete };
 	}
 
-	function showMessage( $item, text, hint ) {
+	function showMessage( $item, text ) {
 		var $msg = $item.find( '.order-upsale-msg' );
 		if ( text ) {
 			$msg.text( text ).prop( 'hidden', false );
-			if ( hint ) {
-				$msg.append( $( '<span class="order-upsale-hint"></span>' ).text( hint ) );
-			}
 		} else {
 			$msg.text( '' ).prop( 'hidden', true );
 		}
@@ -43,7 +40,7 @@ jQuery( function ( $ ) {
 			return;
 		}
 		var data = response && response.data;
-		showMessage( $item, ( data && data.message ) || fallback, data && data.hint );
+		showMessage( $item, ( data && data.message ) || fallback );
 	}
 
 	// Refresh price and availability whenever a variation choice changes.

@@ -739,10 +739,7 @@ class WC_Order_Upsale_Frontend {
 
 		$result = $this->resolve_variation( $product, $attributes );
 		if ( ! $result['variation'] ) {
-			wp_send_json_error( [
-				'message' => $this->resolve_error_message( $result['reason'] ),
-				'hint'    => $this->resolve_admin_hint( $result, $attributes ),
-			] );
+			wp_send_json_error( [ 'message' => $this->resolve_error_message( $result['reason'] ) ] );
 		}
 
 		$variation = $result['variation'];
@@ -779,7 +776,7 @@ class WC_Order_Upsale_Frontend {
 			return [ 'variation' => null, 'reason' => 'no_match' ];
 		}
 		if ( ! $variation->is_purchasable() ) {
-			return [ 'variation' => null, 'reason' => 'not_purchasable', 'variation_id' => $variation_id ];
+			return [ 'variation' => null, 'reason' => 'not_purchasable' ];
 		}
 
 		return [ 'variation' => $variation, 'reason' => '' ];
@@ -795,39 +792,6 @@ class WC_Order_Upsale_Frontend {
 			default:
 				return __( 'הצירוף הזה לא קיים למוצר. נסו אפשרות אחרת.', 'wc-order-upsale' );
 		}
-	}
-
-	/**
-	 * Extra detail shown only to shop managers, naming the exact cause. This is
-	 * the difference between "something is broken" and a one-line fix, and it is
-	 * never shown to shoppers.
-	 *
-	 * @param array $result Result of resolve_variation().
-	 */
-	private function resolve_admin_hint( array $result, array $attributes ): string {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return '';
-		}
-
-		$pairs = [];
-		foreach ( $attributes as $key => $value ) {
-			$pairs[] = $key . '=' . ( '' === $value ? '(ריק)' : rawurldecode( $value ) );
-		}
-		$chosen = implode( ', ', $pairs );
-
-		if ( 'not_purchasable' === ( $result['reason'] ?? '' ) ) {
-			return sprintf(
-				/* translators: %d: variation id. */
-				__( 'אבחון (מנהלים בלבד): הווריאציה #%d קיימת אך אינה ניתנת לרכישה — בדרך כלל שדה מחיר ריק, או שהווריאציה אינה מפורסמת.', 'wc-order-upsale' ),
-				(int) ( $result['variation_id'] ?? 0 )
-			);
-		}
-
-		return sprintf(
-			/* translators: %s: chosen attribute pairs. */
-			__( 'אבחון (מנהלים בלבד): לא נמצאה וריאציה עבור %s. ודאו שהצירוף הזה קיים ברשימת הווריאציות של המוצר.', 'wc-order-upsale' ),
-			$chosen
-		);
 	}
 
 	public function ajax_toggle(): void {
@@ -889,10 +853,7 @@ class WC_Order_Upsale_Frontend {
 			$result    = $this->resolve_variation( $product, $chosen );
 			$variation = $result['variation'];
 			if ( ! $variation ) {
-				wp_send_json_error( [
-					'message' => $this->resolve_error_message( $result['reason'] ),
-					'hint'    => $this->resolve_admin_hint( $result, $chosen ),
-				] );
+				wp_send_json_error( [ 'message' => $this->resolve_error_message( $result['reason'] ) ] );
 			}
 			if ( ! $variation->is_in_stock() ) {
 				wp_send_json_error( [ 'message' => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ) ] );
