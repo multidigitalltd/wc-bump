@@ -28,7 +28,20 @@
 		// variation events — those would immediately hide it again.
 		var followsVariation = $wrap.is( '[hidden]' );
 
+		// Page builders do not always keep the form inside a ".product" ancestor,
+		// and a scoped lookup that comes back empty used to leave the form hidden
+		// for good — so widen the search rather than give up.
 		var $form = $wrap.closest( '.product' ).find( '.variations_form' );
+		if ( ! $form.length ) {
+			$form = $( '.variations_form' ).first();
+		}
+
+		// No variation form at all on a product whose form is waiting for one means
+		// nothing would ever reveal it. Better to show it than to hide it forever.
+		if ( followsVariation && ! $form.length ) {
+			$wrap.removeAttr( 'hidden' ).show();
+			followsVariation = false;
+		}
 
 		// Variable product: toggle by the selected variation's stock state.
 		if ( followsVariation && $form.length ) {
@@ -72,12 +85,17 @@
 				if ( res && res.success ) {
 					$f.hide();
 					$msg.text( ( res.data && res.data.message ) || i18n.success || '' ).show();
-				} else {
-					$msg.text( ( res && res.data && res.data.message ) || i18n.error || 'Error' ).show();
-					$btn.prop( 'disabled', false );
+					return;
 				}
-			} ).fail( function () {
-				$msg.text( i18n.error || 'Error' ).show();
+				$msg.text( ( res && res.data && res.data.message ) || i18n.error || 'Error' ).show();
+				$btn.prop( 'disabled', false );
+			} ).fail( function ( jqXHR ) {
+				// A page served from cache long enough for its nonce to expire is
+				// rejected by check_ajax_referer() with wp_die( -1, 403 ), so it lands
+				// here rather than in .done(). Saying "try again" would be useless
+				// advice — nothing works until the page is reloaded.
+				var expired = jqXHR && ( 403 === jqXHR.status || '-1' === $.trim( jqXHR.responseText || '' ) );
+				$msg.text( ( expired ? i18n.expired : i18n.error ) || 'Error' ).show();
 				$btn.prop( 'disabled', false );
 			} );
 		} );
