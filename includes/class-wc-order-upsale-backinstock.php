@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
  * Back-in-Stock notifications.
  *
  * On an out-of-stock product (or out-of-stock variation) shows a "notify me"
- * form collecting name + email + marketing consent. Subscribers are stored in a
+ * form collecting name + email + consent to a single restock notice. Subscribers are stored in a
  * dedicated table; when the product/variation returns to stock every waiting
  * customer is e-mailed automatically with a link to the product. An admin tab
  * lists subscribers and exports them to CSV.
@@ -41,10 +41,6 @@ class WC_Order_Upsale_Backinstock {
 
 		// Background sender — always registered so scheduled events still fire.
 		add_action( 'wcse_bis_notify', [ $this, 'process_notifications' ], 10, 2 );
-
-		// Opt-out must keep working even if the module is later switched off:
-		// links already sitting in people's inboxes have to stay honoured.
-		add_action( 'template_redirect', [ $this, 'handle_unsubscribe' ] );
 
 		// Registered unconditionally, and gated inside instead. A shortcode that
 		// always resolves means seeing "[wcse_back_in_stock]" printed as plain text
@@ -202,16 +198,19 @@ class WC_Order_Upsale_Backinstock {
 
 		wp_register_style( 'wcse-bis', false, [], WC_ORDER_UPSALE_VERSION );
 		wp_enqueue_style( 'wcse-bis' );
+		// Layout only. No border, background, colour, font or size of our own, so
+		// the theme's own typography and input styling come through untouched and
+		// the form reads as part of the site rather than as a plugin's box.
 		wp_add_inline_style( 'wcse-bis',
-			'.wcse-bis{margin:14px 0;padding:14px 16px;border:1px solid #e0e0e6;border-radius:10px;font-family:inherit}'
-			. '.wcse-bis-title{font-weight:700;margin:0 0 10px}'
+			'.wcse-bis{margin:16px 0}'
+			. '.wcse-bis-title{font-weight:600;margin:0 0 10px}'
 			. '.wcse-bis-form p{margin:0 0 10px}'
-			. '.wcse-bis-form label{display:block;font-size:14px}'
-			. '.wcse-bis-form input[type=text],.wcse-bis-form input[type=email]{width:100%;max-width:320px}'
+			. '.wcse-bis-form label{display:block}'
+			. '.wcse-bis-form input[type=text],.wcse-bis-form input[type=email]{width:100%;max-width:340px}'
 			. '.wcse-bis-consent{display:flex !important;align-items:flex-start;gap:8px}'
-			. '.wcse-bis-consent input{margin-top:3px}'
-			. '.wcse-bis-msg{margin:8px 0 0;font-weight:600}'
-			. '.wcse-bis-msg:empty{margin:0}'
+			. '.wcse-bis-consent input{margin-top:.3em;width:auto;max-width:none}'
+			. '.wcse-bis-msg{margin:10px 0 0}'
+			. '.wcse-bis-msg:empty{display:none;margin:0}'
 		);
 	}
 
@@ -292,7 +291,7 @@ class WC_Order_Upsale_Backinstock {
 		$start_hidden      = $is_variable && ! $variable_sold_out;
 
 		$title    = $this->text( 'title', __( 'רוצים שנעדכן כשחוזר למלאי?', 'wc-order-upsale' ) );
-		$consent  = $this->text( 'consent_text', __( 'אני מאשר/ת קבלת עדכון וקבלת דיוור שיווקי.', 'wc-order-upsale' ) );
+		$consent  = $this->text( 'consent_text', __( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) );
 		$button   = $this->text( 'button_text', __( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ) );
 		$uid      = 'wcse-bis-' . $product->get_id();
 		?>
@@ -508,7 +507,7 @@ class WC_Order_Upsale_Backinstock {
 				continue;
 			}
 
-			list( $subject, $body ) = $this->build_email( (string) $row->name, $name, $url, $id, (string) $row->email );
+			list( $subject, $body ) = $this->build_email( (string) $row->name, $name, $url );
 
 			$this->last_mail_error = '';
 			$ok = wp_mail( $row->email, $subject, $body, $headers );
@@ -574,11 +573,8 @@ class WC_Order_Upsale_Backinstock {
 
 	/**
 	 * Build one notification. Returns [ subject, body ].
-	 *
-	 * @param int    $row_id Subscriber row id, 0 for the admin test mail.
-	 * @param string $email  Recipient, used for the opt-out signature.
 	 */
-	private function build_email( string $customer, string $product_name, string $url, int $row_id, string $email ): array {
+	private function build_email( string $customer, string $product_name, string $url ): array {
 		$tokens = $this->email_tokens( $customer, $product_name, $url );
 
 		/* translators: %s: product name */
@@ -590,102 +586,16 @@ class WC_Order_Upsale_Backinstock {
 		$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
 			. esc_html( $this->text( 'email_button', __( 'לצפייה ורכישה', 'wc-order-upsale' ) ) ) . '</a></p>';
 
-		if ( $row_id > 0 ) {
-			$body .= $this->unsubscribe_footer( $row_id, $email );
-		}
+		// Mail clients default to left-to-right, so a Hebrew message arrives with
+		// its punctuation and layout mirrored unless the direction is stated. A
+		// wrapper carries it without assuming anything about the surrounding
+		// template an SMTP plugin may add.
+		$dir   = is_rtl() ? 'rtl' : 'ltr';
+		$align = is_rtl() ? 'right' : 'left';
+		$body  = '<div dir="' . $dir . '" style="direction:' . $dir . ';text-align:' . $align . '">'
+			. $body . '</div>';
 
 		return [ $subject, $body ];
-	}
-
-	/* ─────────────────────────── Opt-out ───────────────────────────── */
-
-	/**
-	 * Signature tying an unsubscribe link to one subscriber. Derived from the row
-	 * id, the address and the site's own salt, so a link cannot be guessed and
-	 * cannot be edited to unsubscribe somebody else.
-	 */
-	private function unsubscribe_key( int $id, string $email ): string {
-		return hash_hmac( 'sha256', $id . '|' . strtolower( $email ), wp_salt( 'auth' ) );
-	}
-
-	private function unsubscribe_url( int $id, string $email ): string {
-		return add_query_arg(
-			[
-				'wcse_bis_unsub' => $id,
-				'key'            => $this->unsubscribe_key( $id, $email ),
-			],
-			home_url( '/' )
-		);
-	}
-
-	/** The opt-out block appended to every notification e-mail. */
-	private function unsubscribe_footer( int $id, string $email ): string {
-		return '<hr style="border:none;border-top:1px solid #e5e5e5;margin:22px 0 10px">'
-			. '<p style="color:#777;font-size:12px">'
-			. esc_html__( 'קיבלתם את ההודעה הזו כי ביקשתם עדכון על חזרת המוצר למלאי.', 'wc-order-upsale' )
-			. ' <a href="' . esc_url( $this->unsubscribe_url( $id, $email ) ) . '" style="color:#777">'
-			. esc_html__( 'הסירו אותי מרשימת העדכונים', 'wc-order-upsale' )
-			. '</a></p>';
-	}
-
-	/**
-	 * Honour an unsubscribe link.
-	 *
-	 * Following the link only asks for confirmation; the removal happens on the
-	 * POST that the confirmation button sends. Mail-security scanners and
-	 * link-preview services fetch every URL in a message, so deleting on the GET
-	 * would opt customers out before they ever opened the e-mail.
-	 *
-	 * Confirming removes every pending subscription for that address — someone
-	 * asking to stop hearing from us means all of them, not just the one product
-	 * whose mail they happened to open.
-	 */
-	public function handle_unsubscribe(): void {
-		$id  = absint( $_REQUEST['wcse_bis_unsub'] ?? 0 );
-		$key = isset( $_REQUEST['key'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['key'] ) ) : '';
-
-		if ( ! $id || '' === $key ) {
-			return;
-		}
-
-		global $wpdb;
-		$table = self::table();
-		$email = (string) $wpdb->get_var( $wpdb->prepare( "SELECT email FROM {$table} WHERE id = %d", $id ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-
-		// hash_equals keeps the comparison constant-time; an already-removed row
-		// yields an empty address and simply fails the check.
-		$valid = '' !== $email && hash_equals( $this->unsubscribe_key( $id, $email ), $key );
-		$title = __( 'הסרה מרשימת העדכונים', 'wc-order-upsale' );
-		$args  = [ 'response' => 200, 'back_link' => false ];
-
-		if ( ! $valid ) {
-			wp_die( esc_html__( 'הקישור אינו תקף או שכבר הוסרתם מהרשימה.', 'wc-order-upsale' ), esc_html( $title ), $args );
-		}
-
-		if ( 'POST' !== strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) ) ) {
-			$html  = '<p>' . esc_html( sprintf(
-				/* translators: %s: e-mail address */
-				__( 'להסיר את %s מרשימת העדכונים על חזרה למלאי?', 'wc-order-upsale' ),
-				$email
-			) ) . '</p>';
-			$html .= '<form method="post" action="' . esc_url( $this->unsubscribe_url( $id, $email ) ) . '">';
-			$html .= '<input type="hidden" name="wcse_bis_unsub" value="' . esc_attr( (string) $id ) . '">';
-			$html .= '<input type="hidden" name="key" value="' . esc_attr( $key ) . '">';
-			$html .= '<p><button type="submit">' . esc_html__( 'כן, הסירו אותי', 'wc-order-upsale' ) . '</button></p>';
-			$html .= '</form>';
-			$html .= '<p><a href="' . esc_url( home_url( '/' ) ) . '">' . esc_html__( 'חזרה לחנות', 'wc-order-upsale' ) . '</a></p>';
-
-			wp_die( $html, esc_html( $title ), $args ); // phpcs:ignore WordPress.Security.EscapeOutput
-		}
-
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE email = %s AND notified_at IS NULL", $email ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-		$wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-
-		wp_die(
-			esc_html__( 'הוסרתם מרשימת העדכונים. לא נשלח לכם עוד הודעות על חזרה למלאי.', 'wc-order-upsale' ),
-			esc_html( $title ),
-			$args + [ 'link_url' => home_url( '/' ), 'link_text' => __( 'חזרה לחנות', 'wc-order-upsale' ) ]
-		);
 	}
 
 	/** Remember why wp_mail() failed so the row can explain itself in the admin list. */
@@ -784,11 +694,9 @@ class WC_Order_Upsale_Backinstock {
 		list( $subject, $body ) = $this->build_email(
 			(string) $user->display_name,
 			__( 'מוצר לדוגמה', 'wc-order-upsale' ),
-			home_url( '/' ),
-			0,
-			$to
+			home_url( '/' )
 		);
-		$body .= '<hr><p style="color:#777;font-size:13px">' . esc_html__( 'זהו מייל בדיקה מהתוסף. אם קיבלתם אותו — שליחת הדואר באתר תקינה. קישור ההסרה מהדיוור מופיע רק במייל האמיתי.', 'wc-order-upsale' ) . '</p>';
+		$body .= '<hr><p style="color:#777;font-size:13px">' . esc_html__( 'זהו מייל בדיקה מהתוסף. אם קיבלתם אותו — שליחת הדואר באתר תקינה.', 'wc-order-upsale' ) . '</p>';
 
 		$this->last_mail_error = '';
 		add_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
@@ -940,7 +848,7 @@ class WC_Order_Upsale_Backinstock {
 					</tr>
 					<tr>
 						<th scope="row"><label for="wcse-bis-consent"><?php esc_html_e( 'טקסט אישור דיוור', 'wc-order-upsale' ); ?></label></th>
-						<td><input type="text" id="wcse-bis-consent" name="consent_text" value="<?php echo esc_attr( $settings['consent_text'] ); ?>" placeholder="<?php esc_attr_e( 'אני מאשר/ת קבלת עדכון וקבלת דיוור שיווקי.', 'wc-order-upsale' ); ?>" class="large-text"></td>
+						<td><input type="text" id="wcse-bis-consent" name="consent_text" value="<?php echo esc_attr( $settings['consent_text'] ); ?>" placeholder="<?php esc_attr_e( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ); ?>" class="large-text"></td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="wcse-bis-success"><?php esc_html_e( 'הודעת הצלחה', 'wc-order-upsale' ); ?></label></th>
