@@ -80,8 +80,9 @@ class WC_Order_Upsale_Frontend {
 			'i18n'    => [
 				'close'          => __( 'סגור', 'wc-order-upsale' ),
 				'chooseOptions'  => __( 'בחרו את כל האפשרויות כדי להוסיף לסל', 'wc-order-upsale' ),
-				'unavailable'    => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ),
+				'unavailable'    => __( 'הצירוף הזה לא קיים למוצר. נסו אפשרות אחרת.', 'wc-order-upsale' ),
 				'outOfStock'     => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ),
+				'expired'        => __( 'פג תוקף העמוד. רעננו את הדף ונסו שוב.', 'wc-order-upsale' ),
 				'genericError'   => __( 'אירעה שגיאה. נסו שוב.', 'wc-order-upsale' ),
 			],
 		] );
@@ -467,18 +468,28 @@ class WC_Order_Upsale_Frontend {
 		return $clean;
 	}
 
+	/**
+	 * Whether every variation attribute has been answered. "Any" variations are
+	 * handled by the data store, but a blank select means the shopper has not
+	 * chosen yet.
+	 */
+	private function attributes_complete( WC_Product $product, array $attributes ): bool {
+		foreach ( array_keys( $product->get_variation_attributes() ) as $attribute_name ) {
+			$key = wc_variation_attribute_name( $attribute_name );
+			if ( '' === ( $attributes[ $key ] ?? '' ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** Resolve chosen attributes to a variation id, or 0 when nothing matches. */
 	private function match_variation( WC_Product $product, array $attributes ): int {
 		if ( ! $product->is_type( 'variable' ) || empty( $attributes ) ) {
 			return 0;
 		}
-		// Every attribute must be answered; "any" variations are handled by the
-		// data store, but a blank select means the shopper has not chosen yet.
-		foreach ( array_keys( $product->get_variation_attributes() ) as $attribute_name ) {
-			$key = wc_variation_attribute_name( $attribute_name );
-			if ( '' === ( $attributes[ $key ] ?? '' ) ) {
-				return 0;
-			}
+		if ( ! $this->attributes_complete( $product, $attributes ) ) {
+			return 0;
 		}
 
 		return (int) WC_Data_Store::load( 'product' )->find_matching_product_variation( $product, $attributes );
@@ -726,11 +737,15 @@ class WC_Order_Upsale_Frontend {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
 		$attributes = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
 
-		$variation = $this->resolve_variation( $product, $attributes );
-		if ( ! $variation ) {
-			wp_send_json_error( [ 'message' => __( 'הצירוף שנבחר אינו זמין. נסו אפשרות אחרת.', 'wc-order-upsale' ) ] );
+		$result = $this->resolve_variation( $product, $attributes );
+		if ( ! $result['variation'] ) {
+			wp_send_json_error( [
+				'message' => $this->resolve_error_message( $result['reason'] ),
+				'hint'    => $this->resolve_admin_hint( $result, $attributes ),
+			] );
 		}
 
+		$variation = $result['variation'];
 		wp_send_json_success( [
 			'variation_id' => $variation->get_id(),
 			'price_html'   => $this->get_price_html( $variation, $config ),
@@ -739,16 +754,80 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	/**
-	 * The purchasable variation for a set of attributes, or null when the
-	 * combination does not exist or cannot be bought.
+	 * The purchasable variation for a set of attributes.
+	 *
+	 * Returns the reason alongside it so the card can say what actually went
+	 * wrong — "this combination was never created" and "this variation has no
+	 * price" are different problems with different fixes, and reporting both as
+	 * "unavailable" leaves the shop owner guessing.
+	 *
+	 * @return array{variation:?WC_Product,reason:string} reason is '' on success,
+	 *         else 'incomplete', 'no_match' or 'not_purchasable'.
 	 */
-	private function resolve_variation( WC_Product $product, array $attributes ): ?WC_Product {
+	private function resolve_variation( WC_Product $product, array $attributes ): array {
+		if ( ! $this->attributes_complete( $product, $attributes ) ) {
+			return [ 'variation' => null, 'reason' => 'incomplete' ];
+		}
+
 		$variation_id = $this->match_variation( $product, $attributes );
 		if ( ! $variation_id ) {
-			return null;
+			return [ 'variation' => null, 'reason' => 'no_match' ];
 		}
+
 		$variation = wc_get_product( $variation_id );
-		return ( $variation && $variation->is_purchasable() ) ? $variation : null;
+		if ( ! $variation ) {
+			return [ 'variation' => null, 'reason' => 'no_match' ];
+		}
+		if ( ! $variation->is_purchasable() ) {
+			return [ 'variation' => null, 'reason' => 'not_purchasable', 'variation_id' => $variation_id ];
+		}
+
+		return [ 'variation' => $variation, 'reason' => '' ];
+	}
+
+	/** Shopper-facing text for a failed variation resolution. */
+	private function resolve_error_message( string $reason ): string {
+		switch ( $reason ) {
+			case 'incomplete':
+				return __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' );
+			case 'not_purchasable':
+				return __( 'האפשרות הזו אינה זמינה לרכישה כרגע.', 'wc-order-upsale' );
+			default:
+				return __( 'הצירוף הזה לא קיים למוצר. נסו אפשרות אחרת.', 'wc-order-upsale' );
+		}
+	}
+
+	/**
+	 * Extra detail shown only to shop managers, naming the exact cause. This is
+	 * the difference between "something is broken" and a one-line fix, and it is
+	 * never shown to shoppers.
+	 *
+	 * @param array $result Result of resolve_variation().
+	 */
+	private function resolve_admin_hint( array $result, array $attributes ): string {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return '';
+		}
+
+		$pairs = [];
+		foreach ( $attributes as $key => $value ) {
+			$pairs[] = $key . '=' . ( '' === $value ? '(ריק)' : rawurldecode( $value ) );
+		}
+		$chosen = implode( ', ', $pairs );
+
+		if ( 'not_purchasable' === ( $result['reason'] ?? '' ) ) {
+			return sprintf(
+				/* translators: %d: variation id. */
+				__( 'אבחון (מנהלים בלבד): הווריאציה #%d קיימת אך אינה ניתנת לרכישה — בדרך כלל שדה מחיר ריק, או שהווריאציה אינה מפורסמת.', 'wc-order-upsale' ),
+				(int) ( $result['variation_id'] ?? 0 )
+			);
+		}
+
+		return sprintf(
+			/* translators: %s: chosen attribute pairs. */
+			__( 'אבחון (מנהלים בלבד): לא נמצאה וריאציה עבור %s. ודאו שהצירוף הזה קיים ברשימת הווריאציות של המוצר.', 'wc-order-upsale' ),
+			$chosen
+		);
 	}
 
 	public function ajax_toggle(): void {
@@ -807,9 +886,13 @@ class WC_Order_Upsale_Frontend {
 			// so a tampered request can never add an arbitrary variation.
 			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
 			$chosen    = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
-			$variation = $this->resolve_variation( $product, $chosen );
+			$result    = $this->resolve_variation( $product, $chosen );
+			$variation = $result['variation'];
 			if ( ! $variation ) {
-				wp_send_json_error( [ 'message' => __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' ) ] );
+				wp_send_json_error( [
+					'message' => $this->resolve_error_message( $result['reason'] ),
+					'hint'    => $this->resolve_admin_hint( $result, $chosen ),
+				] );
 			}
 			if ( ! $variation->is_in_stock() ) {
 				wp_send_json_error( [ 'message' => __( 'האפשרות שנבחרה אזלה מהמלאי.', 'wc-order-upsale' ) ] );

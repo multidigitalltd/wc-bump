@@ -16,13 +16,34 @@ jQuery( function ( $ ) {
 		return { attrs: attrs, complete: complete };
 	}
 
-	function showMessage( $item, text ) {
+	function showMessage( $item, text, hint ) {
 		var $msg = $item.find( '.order-upsale-msg' );
 		if ( text ) {
 			$msg.text( text ).prop( 'hidden', false );
+			if ( hint ) {
+				$msg.append( $( '<span class="order-upsale-hint"></span>' ).text( hint ) );
+			}
 		} else {
 			$msg.text( '' ).prop( 'hidden', true );
 		}
+	}
+
+	/**
+	 * An expired nonce makes admin-ajax answer with a bare "-1" instead of JSON,
+	 * which otherwise surfaces as a misleading "combination unavailable".
+	 */
+	function isExpired( response ) {
+		return response === -1 || response === '-1' || response === 0 || response === '0';
+	}
+
+	/** Reports a failed response, preferring the server's own explanation. */
+	function showFailure( $item, response, fallback ) {
+		if ( isExpired( response ) ) {
+			showMessage( $item, wcOrderUpsale.i18n.expired );
+			return;
+		}
+		var data = response && response.data;
+		showMessage( $item, ( data && data.message ) || fallback, data && data.hint );
 	}
 
 	// Refresh price and availability whenever a variation choice changes.
@@ -54,8 +75,8 @@ jQuery( function ( $ ) {
 			attributes: chosen.attrs,
 		} )
 		.done( function ( response ) {
-			if ( ! response.success ) {
-				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.unavailable );
+			if ( ! response || ! response.success ) {
+				showFailure( $item, response, wcOrderUpsale.i18n.unavailable );
 				return;
 			}
 
@@ -98,8 +119,8 @@ jQuery( function ( $ ) {
 			attributes:    chosen.attrs,
 		} )
 		.done( function ( response ) {
-			if ( ! response.success ) {
-				showMessage( $item, ( response.data && response.data.message ) || wcOrderUpsale.i18n.genericError );
+			if ( ! response || ! response.success ) {
+				showFailure( $item, response, wcOrderUpsale.i18n.genericError );
 				return;
 			}
 

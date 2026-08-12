@@ -314,6 +314,16 @@
 	border-radius: 6px;
 }
 
+/* Shop-manager diagnostic appended to a failure message; never shown to shoppers. */
+.order-upsale-hint {
+	display: block;
+	margin-top: 5px;
+	padding-top: 5px;
+	border-top: 1px solid rgba( 138, 31, 17, .25 );
+	font-size: .92em;
+	opacity: .85;
+}
+
 .order-upsale-btn[disabled] {
 	opacity: .55;
 	cursor: not-allowed;
