@@ -135,6 +135,8 @@ class WC_Order_Upsale_Backinstock {
 			'consent_text'  => '',
 			'success_text'  => '',
 			'email_subject' => '',
+			'email_body'    => '',
+			'email_button'  => '',
 			// Empty string means off; '1' (the default) means on.
 			'show_oos_variations' => '1',
 		] );
@@ -416,8 +418,6 @@ class WC_Order_Upsale_Backinstock {
 			$url = $product_id ? get_permalink( $product_id ) : home_url( '/' );
 		}
 
-		/* translators: %s: product name */
-		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
 		$headers = [ 'Content-Type: text/html; charset=UTF-8' ];
 
 		$now     = current_time( 'mysql' );
@@ -436,16 +436,7 @@ class WC_Order_Upsale_Backinstock {
 				continue;
 			}
 
-			/* translators: %s: recipient (customer) name */
-			$greeting = sprintf( __( 'שלום %s,', 'wc-order-upsale' ), $row->name );
-			/* translators: %s: product name */
-			$line = sprintf( __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name );
-
-			$body  = '<p>' . esc_html( $greeting ) . '</p>';
-			$body .= '<p>' . esc_html( $line ) . '</p>';
-			$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
-				. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
-			$body .= $this->unsubscribe_footer( $id, (string) $row->email );
+			list( $subject, $body ) = $this->build_email( (string) $row->name, $name, $url, $id, (string) $row->email );
 
 			$this->last_mail_error = '';
 			$ok = wp_mail( $row->email, $subject, $body, $headers );
@@ -480,6 +471,58 @@ class WC_Order_Upsale_Backinstock {
 		if ( $retry || count( $rows ) >= self::BATCH ) {
 			wp_schedule_single_event( time() + 300, 'wcse_bis_notify', [ $product_id, $variation_id ] );
 		}
+	}
+
+	/* ────────────────────────── E-mail content ──────────────────────── */
+
+	/** The tokens an admin can drop into the subject or body, in Hebrew or English. */
+	private function email_tokens( string $customer, string $product_name, string $url ): array {
+		$values = [
+			'name'    => $customer,
+			'product' => $product_name,
+			'link'    => $url,
+			'site'    => get_bloginfo( 'name' ),
+		];
+		$aliases = [ 'name' => 'שם', 'product' => 'מוצר', 'link' => 'קישור', 'site' => 'אתר' ];
+
+		$map = [];
+		foreach ( $values as $key => $value ) {
+			// The template may contain markup, so escape what is substituted into
+			// it rather than the template itself.
+			$safe = 'link' === $key ? esc_url( $value ) : esc_html( $value );
+			$map[ '{' . $key . '}' ]              = $safe;
+			$map[ '{' . $aliases[ $key ] . '}' ]  = $safe;
+		}
+		return $map;
+	}
+
+	private function default_email_body(): string {
+		return __( "שלום {שם},\n\nהמוצר \"{מוצר}\" חזר למלאי — כדאי למהר לפני שייגמר שוב.", 'wc-order-upsale' );
+	}
+
+	/**
+	 * Build one notification. Returns [ subject, body ].
+	 *
+	 * @param int    $row_id Subscriber row id, 0 for the admin test mail.
+	 * @param string $email  Recipient, used for the opt-out signature.
+	 */
+	private function build_email( string $customer, string $product_name, string $url, int $row_id, string $email ): array {
+		$tokens = $this->email_tokens( $customer, $product_name, $url );
+
+		/* translators: %s: product name */
+		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), '{מוצר}' ) );
+		// A subject is plain text, so undo the escaping the token map applied.
+		$subject = wp_specialchars_decode( strtr( $subject, $tokens ), ENT_QUOTES );
+
+		$body  = wpautop( strtr( $this->text( 'email_body', $this->default_email_body() ), $tokens ) );
+		$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
+			. esc_html( $this->text( 'email_button', __( 'לצפייה ורכישה', 'wc-order-upsale' ) ) ) . '</a></p>';
+
+		if ( $row_id > 0 ) {
+			$body .= $this->unsubscribe_footer( $row_id, $email );
+		}
+
+		return [ $subject, $body ];
 	}
 
 	/* ─────────────────────────── Opt-out ───────────────────────────── */
@@ -623,6 +666,9 @@ class WC_Order_Upsale_Backinstock {
 			'consent_text'  => sanitize_text_field( wp_unslash( $_POST['consent_text'] ?? '' ) ),
 			'success_text'  => sanitize_text_field( wp_unslash( $_POST['success_text'] ?? '' ) ),
 			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? '' ) ),
+			// The body may carry simple formatting, so it keeps the post-safe tags.
+			'email_body'    => wp_kses_post( wp_unslash( $_POST['email_body'] ?? '' ) ),
+			'email_button'  => sanitize_text_field( wp_unslash( $_POST['email_button'] ?? '' ) ),
 			'show_oos_variations' => empty( $_POST['show_oos_variations'] ) ? '' : '1',
 		] );
 
@@ -659,16 +705,18 @@ class WC_Order_Upsale_Backinstock {
 			wp_die( 'Unauthorized' );
 		}
 
-		$user  = wp_get_current_user();
-		$to    = $user->user_email;
-		$name  = __( 'מוצר לדוגמה', 'wc-order-upsale' );
-		$subject = $this->text( 'email_subject', sprintf( /* translators: %s: product name */ __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
+		$user = wp_get_current_user();
+		$to   = $user->user_email;
 
-		$body  = '<p>' . esc_html( sprintf( /* translators: %s: recipient name */ __( 'שלום %s,', 'wc-order-upsale' ), $user->display_name ) ) . '</p>';
-		$body .= '<p>' . esc_html( sprintf( /* translators: %s: product name */ __( 'המוצר "%s" חזר למלאי — כדאי למהר לפני שייגמר שוב.', 'wc-order-upsale' ), $name ) ) . '</p>';
-		$body .= '<p><a href="' . esc_url( home_url( '/' ) ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
-			. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
-		$body .= '<hr><p style="color:#777;font-size:13px">' . esc_html__( 'זהו מייל בדיקה מהתוסף. אם קיבלתם אותו — שליחת הדואר באתר תקינה.', 'wc-order-upsale' ) . '</p>';
+		// Render the real template, so the test doubles as a preview of the wording.
+		list( $subject, $body ) = $this->build_email(
+			(string) $user->display_name,
+			__( 'מוצר לדוגמה', 'wc-order-upsale' ),
+			home_url( '/' ),
+			0,
+			$to
+		);
+		$body .= '<hr><p style="color:#777;font-size:13px">' . esc_html__( 'זהו מייל בדיקה מהתוסף. אם קיבלתם אותו — שליחת הדואר באתר תקינה. קישור ההסרה מהדיוור מופיע רק במייל האמיתי.', 'wc-order-upsale' ) . '</p>';
 
 		$this->last_mail_error = '';
 		add_action( 'wp_mail_failed', [ $this, 'capture_mail_error' ] );
@@ -823,10 +871,29 @@ class WC_Order_Upsale_Backinstock {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="wcse-bis-subject"><?php esc_html_e( 'נושא מייל ללקוח', 'wc-order-upsale' ); ?></label></th>
+						<th scope="row"><label for="wcse-bis-subject"><?php esc_html_e( 'נושא המייל', 'wc-order-upsale' ); ?></label></th>
 						<td>
-							<input type="text" id="wcse-bis-subject" name="email_subject" value="<?php echo esc_attr( $settings['email_subject'] ); ?>" placeholder="<?php esc_attr_e( '{שם המוצר} חזר למלאי!', 'wc-order-upsale' ); ?>" class="large-text">
-							<p class="description"><?php esc_html_e( 'נושא המייל שנשלח ללקוח כשהמוצר חוזר למלאי. אם ריק — ייווצר אוטומטית לפי שם המוצר.', 'wc-order-upsale' ); ?></p>
+							<input type="text" id="wcse-bis-subject" name="email_subject" value="<?php echo esc_attr( $settings['email_subject'] ); ?>" placeholder="<?php esc_attr_e( '{מוצר} חזר למלאי!', 'wc-order-upsale' ); ?>" class="large-text">
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="wcse-bis-body"><?php esc_html_e( 'תוכן המייל', 'wc-order-upsale' ); ?></label></th>
+						<td>
+							<textarea id="wcse-bis-body" name="email_body" rows="6" class="large-text" placeholder="<?php echo esc_attr( $this->default_email_body() ); ?>"><?php echo esc_textarea( $settings['email_body'] ); ?></textarea>
+							<p class="description">
+								<?php esc_html_e( 'אפשר להשתמש בקיצורים הבאים, והם יוחלפו בפרטים האמיתיים:', 'wc-order-upsale' ); ?><br>
+								<code>{שם}</code> <?php esc_html_e( 'שם הלקוח', 'wc-order-upsale' ); ?> ·
+								<code>{מוצר}</code> <?php esc_html_e( 'שם המוצר, כולל המידה/הצבע שנבחרו', 'wc-order-upsale' ); ?> ·
+								<code>{קישור}</code> <?php esc_html_e( 'הקישור למוצר', 'wc-order-upsale' ); ?> ·
+								<code>{אתר}</code> <?php esc_html_e( 'שם החנות', 'wc-order-upsale' ); ?>
+								<br><?php esc_html_e( 'הם עובדים גם בנושא המייל, וגם באנגלית: {name} {product} {link} {site}. שורה ריקה יוצרת פסקה חדשה. כפתור המעבר למוצר נוסף אוטומטית מתחת לטקסט.', 'wc-order-upsale' ); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="wcse-bis-emailbtn"><?php esc_html_e( 'כיתוב הכפתור במייל', 'wc-order-upsale' ); ?></label></th>
+						<td>
+							<input type="text" id="wcse-bis-emailbtn" name="email_button" value="<?php echo esc_attr( $settings['email_button'] ); ?>" placeholder="<?php esc_attr_e( 'לצפייה ורכישה', 'wc-order-upsale' ); ?>" class="regular-text">
 						</td>
 					</tr>
 				</table>
@@ -839,7 +906,7 @@ class WC_Order_Upsale_Backinstock {
 				</a>
 				<span class="description"><?php
 					/* translators: %s: admin e-mail address */
-					printf( esc_html__( 'נשלח אל %s ומאמת שהאתר בכלל מסוגל לשלוח דואר.', 'wc-order-upsale' ), esc_html( wp_get_current_user()->user_email ) );
+					printf( esc_html__( 'נשלח אל %s בנוסח שהגדרתם למעלה — גם בדיקה שהאתר מסוגל לשלוח דואר, וגם תצוגה מקדימה. שמרו קודם.', 'wc-order-upsale' ), esc_html( wp_get_current_user()->user_email ) );
 				?></span>
 			</p>
 
