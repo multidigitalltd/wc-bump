@@ -23,10 +23,15 @@
 			return;
 		}
 
+		// A form rendered visible belongs to a product that is already sold out as
+		// a whole, so it collects against the parent and must not be driven by
+		// variation events — those would immediately hide it again.
+		var followsVariation = $wrap.is( '[hidden]' );
+
 		var $form = $wrap.closest( '.product' ).find( '.variations_form' );
 
 		// Variable product: toggle by the selected variation's stock state.
-		if ( $form.length ) {
+		if ( followsVariation && $form.length ) {
 			$form.on( 'found_variation', function ( event, variation ) {
 				if ( variation && false === variation.is_in_stock ) {
 					$wrap.find( 'input[name="variation_id"]' ).val( variation.variation_id );
