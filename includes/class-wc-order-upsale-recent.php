@@ -22,6 +22,14 @@ class WC_Order_Upsale_Recent {
 	const OPTION = 'wc_store_enhancer_recent';
 	const COOKIE = 'wcse_rv';
 	const MAX    = 30;
+	/** CSS class that marks an Elementor widget as the recently-viewed list. */
+	const CSS_HOOK = 'wcse-recently-viewed';
+
+	/** True while a marked Elementor widget is rendering. */
+	private bool $capturing = false;
+
+	/** True once the widget's own query has been rewritten this render. */
+	private bool $applied = false;
 
 	public function __construct() {
 		add_filter( 'wc_store_enhancer_settings_tabs',            [ $this, 'register_settings_tab' ], 20 );
@@ -36,6 +44,15 @@ class WC_Order_Upsale_Recent {
 
 		// Elementor Loop Grid / Posts widget custom query (Query ID = wc_recently_viewed).
 		add_action( 'elementor/query/wc_recently_viewed', [ $this, 'elementor_query' ] );
+
+		// Elementor hides the Query ID field entirely when a Loop template's type
+		// is Product (elementor/elementor#31316, open since Pro 3.29), which is
+		// exactly the case for a product carousel — so the hook above can never be
+		// reached there. Offer a second route keyed off the widget's CSS class,
+		// a field that is always present, using only Elementor's core render
+		// hooks rather than anything specific to Pro.
+		add_action( 'elementor/frontend/widget/before_render', [ $this, 'elementor_widget_start' ] );
+		add_action( 'elementor/frontend/widget/after_render',  [ $this, 'elementor_widget_end' ] );
 	}
 
 	/* ─────────────────────────── Settings ───────────────────────────── */
@@ -168,16 +185,65 @@ class WC_Order_Upsale_Recent {
 
 	/* ─────────────────────────── Display ────────────────────────────── */
 
-	/** Elementor custom-query callback: feed the viewed products into the grid. */
-	public function elementor_query( $query ): void {
-		if ( ! is_object( $query ) || ! method_exists( $query, 'set' ) ) {
+	/** Does this widget carry the marker class? */
+	private function is_marked_widget( $widget ): bool {
+		if ( ! is_object( $widget ) || ! method_exists( $widget, 'get_settings_for_display' ) ) {
+			return false;
+		}
+		$classes = $widget->get_settings_for_display( '_css_classes' );
+		if ( ! is_string( $classes ) || '' === $classes ) {
+			return false;
+		}
+		return in_array( self::CSS_HOOK, preg_split( '/\s+/', trim( $classes ) ) ?: [], true );
+	}
+
+	public function elementor_widget_start( $widget ): void {
+		if ( ! $this->is_enabled() || ! $this->is_marked_widget( $widget ) ) {
 			return;
 		}
-		$ids = $this->is_enabled() ? $this->display_ids() : [];
+		$this->capturing = true;
+		$this->applied   = false;
+		add_action( 'pre_get_posts', [ $this, 'force_recent_query' ], 9999 );
+		$this->prevent_caching();
+	}
+
+	public function elementor_widget_end( $widget ): void {
+		if ( ! $this->capturing ) {
+			return;
+		}
+		remove_action( 'pre_get_posts', [ $this, 'force_recent_query' ], 9999 );
+		$this->capturing = false;
+		$this->applied   = false;
+	}
+
+	/**
+	 * Rewrite the marked widget's product query. Scoped to the render window and
+	 * applied only once, because the loop item template rendered inside it may
+	 * run product queries of its own that must be left alone.
+	 */
+	public function force_recent_query( $query ): void {
+		if ( ! $this->capturing || $this->applied || ! is_object( $query ) || ! method_exists( $query, 'set' ) ) {
+			return;
+		}
+		if ( method_exists( $query, 'is_main_query' ) && $query->is_main_query() ) {
+			return;
+		}
+		if ( ! in_array( 'product', (array) $query->get( 'post_type' ), true ) ) {
+			return;
+		}
+
+		$this->applied = true;
+		$this->apply_recent_args( $query );
+	}
+
+	/** The shared "show exactly these, in this order" arguments. */
+	private function apply_recent_args( $query ): void {
+		$ids = $this->display_ids();
 
 		$query->set( 'post_type', 'product' );
 		$query->set( 'post_status', 'publish' );
 		$query->set( 'ignore_sticky_posts', true );
+		$query->set( 'no_found_rows', true );
 
 		if ( empty( $ids ) ) {
 			$query->set( 'post__in', [ 0 ] ); // Force an empty result set.
@@ -187,9 +253,20 @@ class WC_Order_Upsale_Recent {
 		$query->set( 'post__in', $ids );
 		$query->set( 'orderby', 'post__in' );
 		$query->set( 'posts_per_page', count( $ids ) );
-		$query->set( 'no_found_rows', true );
 		$query->set( 'tax_query', $this->visibility_tax_query() );
+	}
 
+	/** Elementor custom-query callback: feed the viewed products into the grid. */
+	public function elementor_query( $query ): void {
+		if ( ! is_object( $query ) || ! method_exists( $query, 'set' ) ) {
+			return;
+		}
+		if ( ! $this->is_enabled() ) {
+			$query->set( 'post__in', [ 0 ] );
+			return;
+		}
+
+		$this->apply_recent_args( $query );
 		$this->prevent_caching();
 	}
 
@@ -311,15 +388,22 @@ class WC_Order_Upsale_Recent {
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'ההגדרות נשמרו בהצלחה.', 'wc-order-upsale' ); ?></p></div>
 			<?php endif; ?>
 
-			<div class="notice notice-info inline" style="max-width:760px">
-				<p><strong><?php esc_html_e( 'שתי דרכי הצגה:', 'wc-order-upsale' ); ?></strong></p>
+			<div class="notice notice-info inline" style="max-width:820px">
+				<p><strong><?php esc_html_e( 'דרכי הצגה:', 'wc-order-upsale' ); ?></strong></p>
 				<p>
-					<strong>1. Elementor (עיצוב הכרטיס שלכם):</strong>
-					<?php esc_html_e( 'גררו Loop Grid, בחרו את תבנית ה-Loop Item הקיימת, ובשדה Query → Query ID הזינו:', 'wc-order-upsale' ); ?>
-					<code>wc_recently_viewed</code>
+					<strong>1. <?php esc_html_e( 'Elementor — מומלץ, ועובד גם עם תבנית מסוג "מוצר":', 'wc-order-upsale' ); ?></strong><br>
+					<?php esc_html_e( 'גררו Loop Grid או Loop Carousel, בחרו את תבנית ה-Loop Item שלכם, ובלשונית "מתקדם" ← "מזהה CSS ומחלקות CSS" הוסיפו בשדה מחלקות CSS:', 'wc-order-upsale' ); ?>
+					<code><?php echo esc_html( self::CSS_HOOK ); ?></code><br>
+					<span class="description"><?php esc_html_e( 'כל שאר הגדרות השאילתא בווידג׳ט (מקור, סדר לפי, מיון) נדרסות — אין צורך לכוונן אותן.', 'wc-order-upsale' ); ?></span>
 				</p>
 				<p>
-					<strong>2. <?php esc_html_e( 'שורטקוד (כרטיס סטנדרטי):', 'wc-order-upsale' ); ?></strong>
+					<strong>2. Elementor — Query ID:</strong>
+					<?php esc_html_e( 'בשדה שאילתא ← Query ID הזינו', 'wc-order-upsale' ); ?>
+					<code>wc_recently_viewed</code><br>
+					<span class="description"><?php esc_html_e( 'אלמנטור מסתיר את השדה הזה כשסוג תבנית ה-Loop הוא "מוצר" (באג פתוח אצלם מאז Pro 3.29). אם השדה לא מופיע — השתמשו באפשרות 1.', 'wc-order-upsale' ); ?></span>
+				</p>
+				<p>
+					<strong>3. <?php esc_html_e( 'שורטקוד (כרטיס ברירת המחדל של התבנית):', 'wc-order-upsale' ); ?></strong>
 					<code>[wc_recently_viewed count="8" columns="4" title="נצפו לאחרונה"]</code>
 				</p>
 			</div>
