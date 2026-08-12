@@ -430,22 +430,40 @@ class WC_Order_Upsale_Frontend {
 	}
 
 	/**
-	 * Keep only well-formed "attribute_*" pairs from a submitted attribute map.
+	 * The chosen variation attributes for a variable product, read from a request.
 	 *
-	 * @param mixed $raw Raw request value.
+	 * Keys are rebuilt from the product's own attributes rather than trusted from
+	 * input, and values are sanitized exactly the way WooCommerce sanitizes them on
+	 * the product page. That distinction matters: a taxonomy term slug must go
+	 * through sanitize_title(), because sanitize_text_field()/wc_clean() strip
+	 * percent-encoded sequences — and a non-Latin slug ("אדום" => "%d7%90%d7%93%d7%95%d7%9d")
+	 * is made of nothing else, so cleaning it leaves an empty string and no
+	 * variation ever matches.
+	 *
+	 * @param WC_Product $product The variable parent product.
+	 * @param mixed      $raw     Raw, unslashed request value.
 	 * @return array<string,string>
 	 */
-	private function sanitize_attributes( $raw ): array {
-		$clean = [];
-		foreach ( (array) $raw as $key => $value ) {
-			if ( ! is_scalar( $value ) || ! is_string( $key ) ) {
+	private function chosen_attributes( WC_Product $product, $raw ): array {
+		$submitted = is_array( $raw ) ? $raw : [];
+		$clean     = [];
+
+		foreach ( $product->get_attributes() as $attribute ) {
+			if ( ! $attribute->get_variation() ) {
 				continue;
 			}
-			if ( 0 !== strpos( $key, 'attribute_' ) ) {
+
+			$key   = wc_variation_attribute_name( $attribute->get_name() );
+			$value = $submitted[ $key ] ?? '';
+			if ( ! is_scalar( $value ) ) {
 				continue;
 			}
-			$clean[ sanitize_text_field( $key ) ] = sanitize_text_field( (string) $value );
+
+			$clean[ $key ] = $attribute->is_taxonomy()
+				? sanitize_title( (string) $value )
+				: html_entity_decode( wc_clean( (string) $value ), ENT_QUOTES, get_bloginfo( 'charset' ) );
 		}
+
 		return $clean;
 	}
 
@@ -694,7 +712,6 @@ class WC_Order_Upsale_Frontend {
 		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
 
 		$product_id = absint( $_POST['product_id'] ?? 0 );
-		$attributes = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
 
 		$config = $product_id ? $this->find_config( $product_id ) : null;
 		if ( ! $config ) {
@@ -705,6 +722,9 @@ class WC_Order_Upsale_Frontend {
 		if ( ! $product || ! $product->is_type( 'variable' ) ) {
 			wp_send_json_error( [ 'message' => __( 'למוצר זה אין אפשרויות לבחירה', 'wc-order-upsale' ) ] );
 		}
+
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
+		$attributes = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
 
 		$variation = $this->resolve_variation( $product, $attributes );
 		if ( ! $variation ) {
@@ -785,7 +805,8 @@ class WC_Order_Upsale_Frontend {
 		if ( $product->is_type( 'variable' ) ) {
 			// The shopper picks the variation in the card; resolve it server-side
 			// so a tampered request can never add an arbitrary variation.
-			$chosen    = $this->sanitize_attributes( wp_unslash( $_POST['attributes'] ?? [] ) );
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per-attribute below.
+			$chosen    = $this->chosen_attributes( $product, wp_unslash( $_POST['attributes'] ?? [] ) );
 			$variation = $this->resolve_variation( $product, $chosen );
 			if ( ! $variation ) {
 				wp_send_json_error( [ 'message' => __( 'בחרו את כל האפשרויות של המוצר.', 'wc-order-upsale' ) ] );
