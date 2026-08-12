@@ -198,13 +198,22 @@ class WC_Order_Upsale_Recent {
 	}
 
 	public function elementor_widget_start( $widget ): void {
-		if ( ! $this->is_enabled() || ! $this->is_marked_widget( $widget ) ) {
+		// Deliberately not gated on is_enabled(): a marked widget must be taken
+		// over either way. Bailing out here would hand the widget back to its own
+		// Elementor query, so switching the module off would quietly turn a
+		// "recently viewed" carousel into a row of ordinary catalog products
+		// instead of emptying it, which is what the other two routes do.
+		if ( ! $this->is_marked_widget( $widget ) ) {
 			return;
 		}
 		$this->capturing = true;
 		$this->applied   = false;
 		add_action( 'pre_get_posts', [ $this, 'force_recent_query' ], 9999 );
-		$this->prevent_caching();
+
+		// Only a page that actually shows someone's history needs to skip the cache.
+		if ( $this->is_enabled() ) {
+			$this->prevent_caching();
+		}
 	}
 
 	public function elementor_widget_end( $widget ): void {
@@ -238,7 +247,7 @@ class WC_Order_Upsale_Recent {
 
 	/** The shared "show exactly these, in this order" arguments. */
 	private function apply_recent_args( $query ): void {
-		$ids = $this->display_ids();
+		$ids = $this->is_enabled() ? $this->display_ids() : [];
 
 		$query->set( 'post_type', 'product' );
 		$query->set( 'post_status', 'publish' );
@@ -261,13 +270,11 @@ class WC_Order_Upsale_Recent {
 		if ( ! is_object( $query ) || ! method_exists( $query, 'set' ) ) {
 			return;
 		}
-		if ( ! $this->is_enabled() ) {
-			$query->set( 'post__in', [ 0 ] );
-			return;
-		}
-
 		$this->apply_recent_args( $query );
-		$this->prevent_caching();
+
+		if ( $this->is_enabled() ) {
+			$this->prevent_caching();
+		}
 	}
 
 	/** Shortcode [wc_recently_viewed count="8" columns="4" title="..."]. */
