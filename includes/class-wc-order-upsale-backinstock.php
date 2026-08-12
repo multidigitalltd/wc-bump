@@ -46,6 +46,12 @@ class WC_Order_Upsale_Backinstock {
 		// links already sitting in people's inboxes have to stay honoured.
 		add_action( 'template_redirect', [ $this, 'handle_unsubscribe' ] );
 
+		// Registered unconditionally, and gated inside instead. A shortcode that
+		// always resolves means seeing "[wcse_back_in_stock]" printed as plain text
+		// can only mean the running code predates it — which is worth being able
+		// to tell apart from the module simply having nothing to show.
+		add_shortcode( 'wcse_back_in_stock', [ $this, 'shortcode' ] );
+
 		if ( $this->is_enabled() ) {
 			add_action( 'wp_enqueue_scripts',                       [ $this, 'enqueue_assets' ] );
 			// Themes and page builders that rebuild the product template often fire
@@ -55,7 +61,6 @@ class WC_Order_Upsale_Backinstock {
 			add_action( 'woocommerce_single_product_summary',       [ $this, 'render_form' ], 35 );
 			add_action( 'woocommerce_after_single_product_summary', [ $this, 'render_form' ], 5 );
 			add_action( 'wp_footer',                                [ $this, 'inject_fallback' ], 20 );
-			add_shortcode( 'wcse_back_in_stock',                    [ $this, 'shortcode' ] );
 			add_action( 'wp_ajax_wcse_bis_subscribe',               [ $this, 'ajax_subscribe' ] );
 			add_action( 'wp_ajax_nopriv_wcse_bis_subscribe',        [ $this, 'ajax_subscribe' ] );
 
@@ -212,6 +217,9 @@ class WC_Order_Upsale_Backinstock {
 
 	/** [wcse_back_in_stock] — manual placement for a custom or page-builder template. */
 	public function shortcode(): string {
+		if ( ! $this->is_enabled() ) {
+			return '';
+		}
 		ob_start();
 		$this->render_form();
 		return (string) ob_get_clean();
@@ -880,6 +888,19 @@ class WC_Order_Upsale_Backinstock {
 					<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::MENU_SLUG ) ); ?>"><?php esc_html_e( 'לוח הבקרה', 'wc-order-upsale' ); ?></a>
 				</p></div>
 			<?php endif; ?>
+
+			<p class="description">
+				<?php
+				printf(
+					/* translators: 1: plugin version, 2: module state */
+					esc_html__( 'גרסה פעילה: %1$s · מצב המודול: %2$s', 'wc-order-upsale' ),
+					'<code>' . esc_html( WC_ORDER_UPSALE_VERSION ) . '</code>',
+					$this->is_enabled()
+						? '<strong style="color:#125c2b">' . esc_html__( 'דלוק', 'wc-order-upsale' ) . '</strong>'
+						: '<strong style="color:#b32d2e">' . esc_html__( 'כבוי', 'wc-order-upsale' ) . '</strong>'
+				); // phpcs:ignore WordPress.Security.EscapeOutput
+				?>
+			</p>
 
 			<?php if ( $this->cron_disabled() ) : ?>
 				<div class="notice notice-error inline"><p>
