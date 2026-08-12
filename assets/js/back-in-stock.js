@@ -72,10 +72,17 @@
 				if ( res && res.success ) {
 					$f.hide();
 					$msg.text( ( res.data && res.data.message ) || i18n.success || '' ).show();
-				} else {
-					$msg.text( ( res && res.data && res.data.message ) || i18n.error || 'Error' ).show();
-					$btn.prop( 'disabled', false );
+					return;
 				}
+				// A page served from cache long enough for its nonce to expire makes
+				// admin-ajax answer with a bare "-1"; say so instead of "try again",
+				// which never works until the page is reloaded.
+				var expired = res === -1 || res === '-1' || res === 0 || res === '0';
+				var text = expired
+					? ( i18n.expired || i18n.error )
+					: ( ( res && res.data && res.data.message ) || i18n.error || 'Error' );
+				$msg.text( text || 'Error' ).show();
+				$btn.prop( 'disabled', false );
 			} ).fail( function () {
 				$msg.text( i18n.error || 'Error' ).show();
 				$btn.prop( 'disabled', false );

@@ -39,6 +39,10 @@ class WC_Order_Upsale_Backinstock {
 		// Background sender — always registered so scheduled events still fire.
 		add_action( 'wcse_bis_notify', [ $this, 'process_notifications' ], 10, 2 );
 
+		// Opt-out must keep working even if the module is later switched off:
+		// links already sitting in people's inboxes have to stay honoured.
+		add_action( 'template_redirect', [ $this, 'handle_unsubscribe' ] );
+
 		if ( $this->is_enabled() ) {
 			add_action( 'wp_enqueue_scripts',                       [ $this, 'enqueue_assets' ] );
 			add_action( 'woocommerce_single_product_summary',       [ $this, 'render_form' ], 35 );
@@ -175,6 +179,7 @@ class WC_Order_Upsale_Backinstock {
 			'i18n'    => [
 				'success' => $this->text( 'success_text', __( 'תודה! נעדכן אתכם כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) ),
 				'error'   => __( 'אירעה שגיאה. נסו שוב.', 'wc-order-upsale' ),
+				'expired' => __( 'פג תוקף העמוד. רעננו את הדף ונסו שוב.', 'wc-order-upsale' ),
 			],
 		] );
 
@@ -281,8 +286,19 @@ class WC_Order_Upsale_Backinstock {
 		if ( ! $consent ) {
 			wp_send_json_error( [ 'message' => __( 'יש לאשר קבלת דיוור.', 'wc-order-upsale' ) ] );
 		}
-		if ( ! $product || ! wc_get_product( $product ) ) {
+		$product_obj = $product ? wc_get_product( $product ) : null;
+		if ( ! $product_obj ) {
 			wp_send_json_error( [ 'message' => __( 'מוצר לא תקין.', 'wc-order-upsale' ) ] );
+		}
+
+		// A variation id arrives from the browser, so confirm it is really a child
+		// of this product before storing it — otherwise a crafted request could
+		// attach a subscriber to a variation of some entirely different product.
+		if ( $variant ) {
+			$variation = wc_get_product( $variant );
+			if ( ! $variation || ! $variation->is_type( 'variation' ) || (int) $variation->get_parent_id() !== $product ) {
+				wp_send_json_error( [ 'message' => __( 'האפשרות שנבחרה אינה שייכת למוצר הזה.', 'wc-order-upsale' ) ] );
+			}
 		}
 
 		global $wpdb;
@@ -381,7 +397,24 @@ class WC_Order_Upsale_Backinstock {
 		}
 
 		$name = $product->get_name();
-		$url  = $product_id ? get_permalink( $product_id ) : home_url( '/' );
+
+		// Someone who waited for "red / L" should be told that red / L is back —
+		// a variation's get_name() is just the parent's, so spell the choice out.
+		$variant_label = '';
+		if ( $variation_id > 0 && function_exists( 'wc_get_formatted_variation' ) ) {
+			// flat + names gives "מידה: L, צבע: אדום", with term slugs decoded.
+			$variant_label = wc_get_formatted_variation( $product, true, true );
+		}
+		if ( '' !== $variant_label ) {
+			$name .= ' — ' . $variant_label;
+		}
+
+		// A variation's permalink carries its attributes, so the link lands on the
+		// product with the right size/colour already selected.
+		$url = $product->get_permalink();
+		if ( ! $url ) {
+			$url = $product_id ? get_permalink( $product_id ) : home_url( '/' );
+		}
 
 		/* translators: %s: product name */
 		$subject = $this->text( 'email_subject', sprintf( __( '%s חזר למלאי!', 'wc-order-upsale' ), $name ) );
@@ -398,7 +431,8 @@ class WC_Order_Upsale_Backinstock {
 			$attempts = (int) $row->attempts + 1;
 
 			if ( ! is_email( $row->email ) ) {
-				$this->record_failure( $id, $attempts, __( 'כתובת אימייל לא תקינה', 'wc-order-upsale' ), $now );
+				// Retrying cannot help — close the row on the first pass.
+				$this->record_failure( $id, self::MAX_ATTEMPTS, __( 'כתובת אימייל לא תקינה', 'wc-order-upsale' ), $now );
 				continue;
 			}
 
@@ -411,6 +445,7 @@ class WC_Order_Upsale_Backinstock {
 			$body .= '<p>' . esc_html( $line ) . '</p>';
 			$body .= '<p><a href="' . esc_url( $url ) . '" style="display:inline-block;background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
 				. esc_html__( 'לצפייה ורכישה', 'wc-order-upsale' ) . '</a></p>';
+			$body .= $this->unsubscribe_footer( $id, (string) $row->email );
 
 			$this->last_mail_error = '';
 			$ok = wp_mail( $row->email, $subject, $body, $headers );
@@ -445,6 +480,79 @@ class WC_Order_Upsale_Backinstock {
 		if ( $retry || count( $rows ) >= self::BATCH ) {
 			wp_schedule_single_event( time() + 300, 'wcse_bis_notify', [ $product_id, $variation_id ] );
 		}
+	}
+
+	/* ─────────────────────────── Opt-out ───────────────────────────── */
+
+	/**
+	 * Signature tying an unsubscribe link to one subscriber. Derived from the row
+	 * id, the address and the site's own salt, so a link cannot be guessed and
+	 * cannot be edited to unsubscribe somebody else.
+	 */
+	private function unsubscribe_key( int $id, string $email ): string {
+		return hash_hmac( 'sha256', $id . '|' . strtolower( $email ), wp_salt( 'auth' ) );
+	}
+
+	private function unsubscribe_url( int $id, string $email ): string {
+		return add_query_arg(
+			[
+				'wcse_bis_unsub' => $id,
+				'key'            => $this->unsubscribe_key( $id, $email ),
+			],
+			home_url( '/' )
+		);
+	}
+
+	/** The opt-out block appended to every notification e-mail. */
+	private function unsubscribe_footer( int $id, string $email ): string {
+		return '<hr style="border:none;border-top:1px solid #e5e5e5;margin:22px 0 10px">'
+			. '<p style="color:#777;font-size:12px">'
+			. esc_html__( 'קיבלתם את ההודעה הזו כי ביקשתם עדכון על חזרת המוצר למלאי.', 'wc-order-upsale' )
+			. ' <a href="' . esc_url( $this->unsubscribe_url( $id, $email ) ) . '" style="color:#777">'
+			. esc_html__( 'הסירו אותי מרשימת העדכונים', 'wc-order-upsale' )
+			. '</a></p>';
+	}
+
+	/**
+	 * Honour an unsubscribe link. Removes every pending subscription for that
+	 * address — someone asking to stop hearing from us means all of them, not
+	 * just the one product whose mail they happened to open.
+	 */
+	public function handle_unsubscribe(): void {
+		if ( empty( $_GET['wcse_bis_unsub'] ) || empty( $_GET['key'] ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$table = self::table();
+		$id    = absint( $_GET['wcse_bis_unsub'] );
+		$key   = sanitize_text_field( wp_unslash( $_GET['key'] ) );
+
+		$email = $id ? (string) $wpdb->get_var( $wpdb->prepare( "SELECT email FROM {$table} WHERE id = %d", $id ) ) : ''; // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+
+		// hash_equals keeps the comparison constant-time; an already-removed row
+		// yields an empty address and simply fails the check.
+		$valid = '' !== $email && hash_equals( $this->unsubscribe_key( $id, $email ), $key );
+
+		if ( $valid ) {
+			$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE email = %s AND notified_at IS NULL", $email ) ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+			$wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		}
+
+		$message = $valid
+			? __( 'הוסרתם מרשימת העדכונים. לא נשלח לכם עוד הודעות על חזרה למלאי.', 'wc-order-upsale' )
+			: __( 'הקישור אינו תקף או שכבר הוסרתם מהרשימה.', 'wc-order-upsale' );
+
+		wp_die(
+			esc_html( $message ),
+			esc_html__( 'הסרה מרשימת העדכונים', 'wc-order-upsale' ),
+			[
+				'response'  => 200,
+				'back_link' => false,
+				'link_url'  => home_url( '/' ),
+				'link_text' => __( 'חזרה לחנות', 'wc-order-upsale' ),
+			]
+		);
 	}
 
 	/** Remember why wp_mail() failed so the row can explain itself in the admin list. */
