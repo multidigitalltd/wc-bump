@@ -28,6 +28,10 @@ class WC_Order_Upsale_Recent {
 		add_action( 'admin_post_save_wc_store_enhancer_recent',   [ $this, 'save_settings' ] );
 
 		add_action( 'template_redirect', [ $this, 'track' ] );
+		// A page served from a full-page cache never reaches PHP, so the view
+		// above is never recorded. Repeat it in the browser, where the cache
+		// cannot get in the way.
+		add_action( 'wp_footer', [ $this, 'print_tracker' ], 20 );
 		add_shortcode( 'wc_recently_viewed', [ $this, 'shortcode' ] );
 
 		// Elementor Loop Grid / Posts widget custom query (Query ID = wc_recently_viewed).
@@ -42,6 +46,7 @@ class WC_Order_Upsale_Recent {
 			'columns'         => 4,
 			'exclude_current' => 1,
 			'title'           => '',
+			'bypass_cache'    => 1,
 		] );
 	}
 
@@ -94,6 +99,73 @@ class WC_Order_Upsale_Recent {
 		return array_slice( $ids, 0, max( 1, $limit ) );
 	}
 
+	/**
+	 * Products hidden from the catalog should stay hidden here too, and sold-out
+	 * ones follow the store's own setting — WooCommerce's own recently-viewed
+	 * widget applies exactly these, and a raw post__in query applies neither.
+	 */
+	private function visibility_tax_query(): array {
+		$exclude = [ 'exclude-from-catalog' ];
+		if ( 'yes' === get_option( 'woocommerce_hide_out_of_stock_items' ) ) {
+			$exclude[] = 'outofstock';
+		}
+
+		return [
+			[
+				'taxonomy' => 'product_visibility',
+				'field'    => 'name',
+				'terms'    => $exclude,
+				'operator' => 'NOT IN',
+			],
+		];
+	}
+
+	/**
+	 * Keep a page that shows one visitor's history out of the page cache.
+	 *
+	 * Without this a full-page cache stores the first visitor's list and serves
+	 * it to everyone after them — wrong for them, and a leak of what the first
+	 * one was browsing. Honoured by the major caching plugins.
+	 */
+	private function prevent_caching(): void {
+		if ( empty( self::get_settings()['bypass_cache'] ) ) {
+			return;
+		}
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+	}
+
+	/** Mirrors track() in the browser, for pages that never reach PHP. */
+	public function print_tracker(): void {
+		if ( ! $this->is_enabled() || ! function_exists( 'is_product' ) || ! is_product() ) {
+			return;
+		}
+		$id = (int) get_queried_object_id();
+		if ( ! $id ) {
+			return;
+		}
+		$path = defined( 'COOKIEPATH' ) && COOKIEPATH ? COOKIEPATH : '/';
+		?>
+		<script>
+		(function () {
+			var name = <?php echo wp_json_encode( self::COOKIE ); ?>,
+				id   = <?php echo wp_json_encode( (string) $id ); ?>,
+				max  = <?php echo (int) self::MAX; ?>,
+				path = <?php echo wp_json_encode( $path ); ?>;
+			var hit = document.cookie.match( new RegExp( '(?:^|;\\s*)' + name + '=([^;]*)' ) );
+			var ids = hit ? decodeURIComponent( hit[ 1 ] ).split( ',' ).filter( Boolean ) : [];
+			ids = ids.filter( function ( v ) { return v !== id; } );
+			ids.unshift( id );
+			ids = ids.slice( 0, max );
+			document.cookie = name + '=' + encodeURIComponent( ids.join( ',' ) )
+				+ ';path=' + path + ';max-age=' + ( 30 * 24 * 60 * 60 ) + ';samesite=lax'
+				+ ( 'https:' === location.protocol ? ';secure' : '' );
+		})();
+		</script>
+		<?php
+	}
+
 	/* ─────────────────────────── Display ────────────────────────────── */
 
 	/** Elementor custom-query callback: feed the viewed products into the grid. */
@@ -115,6 +187,10 @@ class WC_Order_Upsale_Recent {
 		$query->set( 'post__in', $ids );
 		$query->set( 'orderby', 'post__in' );
 		$query->set( 'posts_per_page', count( $ids ) );
+		$query->set( 'no_found_rows', true );
+		$query->set( 'tax_query', $this->visibility_tax_query() );
+
+		$this->prevent_caching();
 	}
 
 	/** Shortcode [wc_recently_viewed count="8" columns="4" title="..."]. */
@@ -142,6 +218,8 @@ class WC_Order_Upsale_Recent {
 			'orderby'             => 'post__in',
 			'posts_per_page'      => count( $ids ),
 			'ignore_sticky_posts' => true,
+			'no_found_rows'       => true,
+			'tax_query'           => $this->visibility_tax_query(),
 		] );
 
 		if ( ! $query->have_posts() ) {
@@ -170,6 +248,13 @@ class WC_Order_Upsale_Recent {
 		echo '</div>';
 
 		wp_reset_postdata();
+		// Our column override would otherwise leak into any later product loop
+		// on the same page.
+		if ( function_exists( 'wc_reset_loop' ) ) {
+			wc_reset_loop();
+		}
+
+		$this->prevent_caching();
 
 		return ob_get_clean();
 	}
@@ -197,6 +282,7 @@ class WC_Order_Upsale_Recent {
 			'count'           => max( 1, min( self::MAX, absint( $_POST['count'] ?? 8 ) ) ),
 			'columns'         => max( 1, min( 8, absint( $_POST['columns'] ?? 4 ) ) ),
 			'exclude_current' => empty( $_POST['exclude_current'] ) ? 0 : 1,
+			'bypass_cache'    => empty( $_POST['bypass_cache'] ) ? 0 : 1,
 			'title'           => sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
 		] );
 
@@ -259,6 +345,19 @@ class WC_Order_Upsale_Recent {
 								<input type="checkbox" name="exclude_current" value="1" <?php checked( ! empty( $settings['exclude_current'] ) ); ?>>
 								<?php esc_html_e( 'לא להציג את המוצר שבו צופים כרגע ברשימה.', 'wc-order-upsale' ); ?>
 							</label>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'קאש', 'wc-order-upsale' ); ?></th>
+						<td>
+							<label>
+								<input type="hidden" name="bypass_cache" value="0">
+								<input type="checkbox" name="bypass_cache" value="1" <?php checked( ! empty( $settings['bypass_cache'] ) ); ?>>
+								<?php esc_html_e( 'אל תאחסנו בקאש עמודים שמציגים את הרשימה (מומלץ)', 'wc-order-upsale' ); ?>
+							</label>
+							<p class="description">
+								<?php esc_html_e( 'הרשימה אישית לכל מבקר. בלי זה, תוסף קאש שומר את הרשימה של המבקר הראשון ומגיש אותה לכל מי שאחריו — גם שגוי עבורם, וגם חושף במה המבקר הראשון עיין. כיבוי משפר ביצועים אבל מחזיר את הבעיה.', 'wc-order-upsale' ); ?>
+							</p>
 						</td>
 					</tr>
 					<tr>
