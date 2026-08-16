@@ -24,6 +24,11 @@ class WC_Order_Upsale_License {
 
 	const OPTION    = 'wc_store_enhancer_license';
 	const CRON_HOOK = 'wcse_license_check';
+	/**
+	 * Records that the one-time pre-licence decision has been taken. Deliberately
+	 * separate from OPTION, which removing a licence deletes.
+	 */
+	const MIGRATED_OPT = 'wc_store_enhancer_license_migrated';
 
 	/**
 	 * Where licences are issued.
@@ -204,16 +209,33 @@ class WC_Order_Upsale_License {
 	}
 
 	/**
-	 * Carry an install that predates licensing.
+	 * Carry an install that predates licensing — once, and only once.
 	 *
 	 * A shop that has been running these modules for months must not have them
-	 * switch off because it updated the plugin. If module states were already
-	 * saved before a licence option existed, that shop is treated as licensed.
+	 * switch off because it updated the plugin. The question is whether module
+	 * settings already existed at the moment this code first ran, which is only
+	 * true of an install that predates it: a fresh one has none yet, because the
+	 * shop has not reached the dashboard.
+	 *
+	 * The decision is taken on the first request after the update and recorded
+	 * permanently in its own option. Two things depend on that:
+	 *
+	 *  - The marker is written *before* the check, so this can never run twice.
+	 *    Otherwise a fresh install would be grandfathered the moment the shop
+	 *    saved the module toggles, which is one click, and the gate would mean
+	 *    nothing.
+	 *  - The marker lives outside the licence option, which removing a licence
+	 *    deletes. Otherwise "remove licence" would hand the modules straight
+	 *    back on the next page load.
 	 */
 	public static function grandfather(): void {
-		if ( false !== get_option( self::OPTION, false ) ) {
+		if ( get_option( self::MIGRATED_OPT, false ) ) {
 			return;
 		}
+		update_option( self::MIGRATED_OPT, 1, false );
+
+		// No module settings yet means nobody has configured this install, so
+		// there is nothing here that predates licensing.
 		if ( false === get_option( 'wc_store_enhancer_modules', false ) ) {
 			return;
 		}

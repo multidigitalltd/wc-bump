@@ -44,8 +44,12 @@ class WC_Order_Upsale_Impact {
 	 */
 	const ALL_KEY = '__all';
 
+	/** Records that the one-time seeding of the total row has happened. */
+	const SEEDED_OPT = 'wc_store_enhancer_impact_seeded';
+
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
+		add_action( 'init', [ __CLASS__, 'maybe_seed_total' ], 2 );
 
 		// Mark the modules a shopper actually used. Both run inside an
 		// add-to-cart request that is already hitting PHP.
@@ -111,6 +115,63 @@ class WC_Order_Upsale_Impact {
 			$revenue,
 			$revenue
 		) );
+
+		delete_transient( self::CACHE_KEY );
+	}
+
+	/**
+	 * Give the total row a starting point when upgrading.
+	 *
+	 * Rows recorded before this release have no total row to belong to, and the
+	 * orders behind them are already stamped as counted, so nothing will ever
+	 * fill it in for them. Left alone, the headline would read zero beneath a
+	 * table full of history.
+	 *
+	 * The overlap between modules was never recorded, so the true distinct count
+	 * cannot be recovered. The largest single module is the tightest figure that
+	 * is certainly not an overstatement: if one module took part in 40 orders,
+	 * then at least 40 distinct orders happened. Seeded once, and exact from
+	 * here on.
+	 */
+	public static function maybe_seed_total(): void {
+		if ( get_option( self::SEEDED_OPT, false ) ) {
+			return;
+		}
+		update_option( self::SEEDED_OPT, 1, false );
+
+		global $wpdb;
+		$table = self::table();
+
+		$existing = $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			"SELECT COUNT(*) FROM {$table} WHERE module = %s",
+			self::ALL_KEY
+		) );
+		if ( $existing ) {
+			return;
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			"SELECT MAX(o) AS orders, MAX(r) AS revenue, MIN(d) AS first_date FROM (
+				SELECT SUM(orders) AS o, SUM(revenue) AS r, MIN(stat_date) AS d
+				FROM {$table} WHERE module <> %s GROUP BY module
+			) AS per_module",
+			self::ALL_KEY
+		), ARRAY_A );
+
+		if ( ! $row || empty( $row['orders'] ) ) {
+			return;
+		}
+
+		$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$table,
+			[
+				'module'    => self::ALL_KEY,
+				'stat_date' => $row['first_date'] ?: current_time( 'Y-m-d' ),
+				'orders'    => (int) $row['orders'],
+				'revenue'   => (float) $row['revenue'],
+			],
+			[ '%s', '%s', '%d', '%f' ]
+		);
 
 		delete_transient( self::CACHE_KEY );
 	}
