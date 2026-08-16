@@ -34,8 +34,22 @@ class WC_Order_Upsale_Impact {
 	/** Session key holding the modules used on the way to the current order. */
 	const SESSION_KEY = 'wcse_impact_modules';
 
+	/**
+	 * Synthetic row holding each attributed order exactly once.
+	 *
+	 * An order that used two modules is credited to both, which is right for
+	 * asking what each one took part in — but summing those columns counts the
+	 * same money twice. This row is bumped once per order, so the headline can
+	 * be an actual total rather than an inflated one.
+	 */
+	const ALL_KEY = '__all';
+
+	/** Records that the one-time seeding of the total row has happened. */
+	const SEEDED_OPT = 'wc_store_enhancer_impact_seeded';
+
 	public function __construct() {
 		add_action( 'init', [ $this, 'maybe_create_table' ] );
+		add_action( 'init', [ __CLASS__, 'maybe_seed_total' ], 2 );
 
 		// Mark the modules a shopper actually used. Both run inside an
 		// add-to-cart request that is already hitting PHP.
@@ -101,6 +115,63 @@ class WC_Order_Upsale_Impact {
 			$revenue,
 			$revenue
 		) );
+
+		delete_transient( self::CACHE_KEY );
+	}
+
+	/**
+	 * Give the total row a starting point when upgrading.
+	 *
+	 * Rows recorded before this release have no total row to belong to, and the
+	 * orders behind them are already stamped as counted, so nothing will ever
+	 * fill it in for them. Left alone, the headline would read zero beneath a
+	 * table full of history.
+	 *
+	 * The overlap between modules was never recorded, so the true distinct count
+	 * cannot be recovered. The largest single module is the tightest figure that
+	 * is certainly not an overstatement: if one module took part in 40 orders,
+	 * then at least 40 distinct orders happened. Seeded once, and exact from
+	 * here on.
+	 */
+	public static function maybe_seed_total(): void {
+		if ( get_option( self::SEEDED_OPT, false ) ) {
+			return;
+		}
+		update_option( self::SEEDED_OPT, 1, false );
+
+		global $wpdb;
+		$table = self::table();
+
+		$existing = $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			"SELECT COUNT(*) FROM {$table} WHERE module = %s",
+			self::ALL_KEY
+		) );
+		if ( $existing ) {
+			return;
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			"SELECT MAX(o) AS orders, MAX(r) AS revenue, MIN(d) AS first_date FROM (
+				SELECT SUM(orders) AS o, SUM(revenue) AS r, MIN(stat_date) AS d
+				FROM {$table} WHERE module <> %s GROUP BY module
+			) AS per_module",
+			self::ALL_KEY
+		), ARRAY_A );
+
+		if ( ! $row || empty( $row['orders'] ) ) {
+			return;
+		}
+
+		$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$table,
+			[
+				'module'    => self::ALL_KEY,
+				'stat_date' => $row['first_date'] ?: current_time( 'Y-m-d' ),
+				'orders'    => (int) $row['orders'],
+				'revenue'   => (float) $row['revenue'],
+			],
+			[ '%s', '%s', '%d', '%f' ]
+		);
 
 		delete_transient( self::CACHE_KEY );
 	}
@@ -189,6 +260,28 @@ class WC_Order_Upsale_Impact {
 		return ! empty( $found );
 	}
 
+	/** Did this order contain an upsale card's product? */
+	private function contains_upsale( WC_Order $order ): bool {
+		foreach ( $order->get_items() as $item ) {
+			if ( $item->get_meta( '_order_upsale' ) || $item->get_meta( '_order_upsale_id' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Was this order recovered by an abandoned-cart mail? */
+	private function recovered_cart( WC_Order $order ): bool {
+		if ( ! class_exists( 'WC_Order_Upsale_Abandoned' ) ) {
+			return false;
+		}
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			'SELECT id FROM ' . WC_Order_Upsale_Abandoned::table() . " WHERE order_id = %d AND status = 'recovered' LIMIT 1",
+			$order->get_id()
+		) );
+	}
+
 	/**
 	 * Credit every module that took part in this order.
 	 *
@@ -209,6 +302,12 @@ class WC_Order_Upsale_Impact {
 		if ( $this->followed_back_in_stock( $order ) ) {
 			$modules[] = 'back_in_stock';
 		}
+		if ( $this->contains_upsale( $order ) ) {
+			$modules[] = 'order_upsale';
+		}
+		if ( $this->recovered_cart( $order ) ) {
+			$modules[] = 'abandoned_cart';
+		}
 
 		$modules = array_unique( $modules );
 		if ( empty( $modules ) ) {
@@ -222,6 +321,8 @@ class WC_Order_Upsale_Impact {
 		foreach ( $modules as $module ) {
 			self::bump( $module, $revenue );
 		}
+		// Once more for the order as a whole, whatever it passed through.
+		self::bump( self::ALL_KEY, $revenue );
 
 		$order->update_meta_data( '_wcse_impact_recorded', 1 );
 		$order->save();
@@ -246,7 +347,7 @@ class WC_Order_Upsale_Impact {
 		global $wpdb;
 		$out = [];
 
-		// Modules attributed here.
+		// Every module's participation, in one unit: whole orders and their value.
 		$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
 			'SELECT module, SUM(orders) AS orders, SUM(revenue) AS revenue FROM ' . self::table() . ' GROUP BY module',
 			ARRAY_A
@@ -258,39 +359,47 @@ class WC_Order_Upsale_Impact {
 			];
 		}
 
-		// The upsale card keeps richer numbers of its own — read, never re-count.
+		// The upsale card also knows what the card itself earned, and how often it
+		// was seen — a different question from "orders it took part in", and worth
+		// showing beside it rather than instead of it.
 		if ( class_exists( 'WC_Order_Upsale_Analytics' ) ) {
 			$stats = WC_Order_Upsale_Analytics::totals();
-			$out['order_upsale'] = [
-				'orders'      => (int) ( $stats['conversions'] ?? 0 ),
-				'revenue'     => (float) ( $stats['revenue'] ?? 0 ),
-				'impressions' => (int) ( $stats['impressions'] ?? 0 ),
-				'add_to_cart' => (int) ( $stats['add_to_cart'] ?? 0 ),
-			];
+			$out['order_upsale'] = array_merge(
+				$out['order_upsale'] ?? [ 'orders' => 0, 'revenue' => 0.0 ],
+				[
+					'impressions'   => (int) ( $stats['impressions'] ?? 0 ),
+					'add_to_cart'   => (int) ( $stats['add_to_cart'] ?? 0 ),
+					'direct_revenue' => (float) ( $stats['revenue'] ?? 0 ),
+				]
+			);
 		}
 
-		// Cart recovery likewise.
+		// Cart recovery knows how many mails it sent, which its recovery rate needs.
 		if ( class_exists( 'WC_Order_Upsale_Abandoned' ) && method_exists( 'WC_Order_Upsale_Abandoned', 'stats' ) ) {
 			$ab = WC_Order_Upsale_Abandoned::stats();
-			$out['abandoned_cart'] = [
-				'orders'  => (int) ( $ab['recovered'] ?? 0 ),
-				'revenue' => (float) ( $ab['revenue'] ?? 0 ),
-				'sent'    => (int) ( $ab['sent'] ?? 0 ),
-			];
+			$out['abandoned_cart'] = array_merge(
+				$out['abandoned_cart'] ?? [ 'orders' => 0, 'revenue' => 0.0 ],
+				[ 'sent' => (int) ( $ab['sent'] ?? 0 ) ]
+			);
 		}
 
 		set_transient( self::CACHE_KEY, $out, 5 * MINUTE_IN_SECONDS );
 		return $out;
 	}
 
-	/** Orders and revenue summed across every module, for the headline figures. */
+	/**
+	 * The headline figures, counting each order exactly once.
+	 *
+	 * Read from the synthetic total row rather than summed across modules: an
+	 * order that used two of them appears in two module rows, and adding those
+	 * up would report the same money twice.
+	 */
 	public static function headline(): array {
-		$orders  = 0;
-		$revenue = 0.0;
-		foreach ( self::totals() as $row ) {
-			$orders  += (int) ( $row['orders'] ?? 0 );
-			$revenue += (float) ( $row['revenue'] ?? 0 );
-		}
-		return [ 'orders' => $orders, 'revenue' => $revenue ];
+		$all = self::totals()[ self::ALL_KEY ] ?? null;
+
+		return [
+			'orders'  => (int) ( $all['orders'] ?? 0 ),
+			'revenue' => (float) ( $all['revenue'] ?? 0 ),
+		];
 	}
 }

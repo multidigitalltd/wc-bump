@@ -7,21 +7,14 @@ defined( 'ABSPATH' ) || exit;
  *
  * Lets the site pull new plugin versions straight from wp-admin (Plugins →
  * "There is a new version…" and Dashboard → Updates) without the wordpress.org
- * repository. Two sources are supported:
- *
- *   - github: the latest GitHub Release of a repo (public, or private with a
- *             personal-access token). A ".zip" release asset is preferred, else
- *             the auto-generated source zipball is used.
- *   - url:    a custom JSON manifest hosted anywhere, e.g.
- *             { "version":"1.6.0", "download_url":"https://…/plugin.zip",
- *               "requires":"6.4", "requires_php":"8.0", "tested":"9.9",
- *               "homepage":"…", "changelog":"…", "last_updated":"2026-07-18" }
+ * repository. The build comes from the licence server and nowhere else: there
+ * is no repository or token for a shop to configure, and nothing it can point
+ * at instead.
  *
  * The remote lookup is cached in a transient so the plugins list stays fast.
  */
 class WC_Order_Upsale_Updater {
 
-	const OPTION    = 'wc_store_enhancer_update';
 	const CACHE_KEY = 'wc_store_enhancer_update_cache';
 	const CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
@@ -45,53 +38,10 @@ class WC_Order_Upsale_Updater {
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_update' ] );
 		add_filter( 'plugins_api',                           [ $this, 'plugins_api' ], 20, 3 );
 		add_filter( 'upgrader_source_selection',             [ $this, 'fix_source_dir' ], 10, 4 );
-		add_filter( 'http_request_args',                     [ $this, 'authorize_download' ], 10, 2 );
 		add_action( 'upgrader_process_complete',             [ $this, 'clear_cache' ] );
 
-		// Admin: settings tab on the shared page (kept last) + manual "check now".
+		// Manual "check now", offered from the licence tab.
 		add_action( 'admin_post_wc_store_enhancer_check_update',  [ $this, 'manual_check' ] );
-	}
-
-	/**
-	 * Register the "עדכונים" tab — only for users who can actually manage plugin
-	 * updates, so it never shows to shop managers.
-	 */
-
-	/* ─────────────────────────── Settings ───────────────────────────── */
-
-	/**
-	 * Update source.
-	 *
-	 * Always the licence server for a customer install — there is no setting for
-	 * it any more, and an install that predates the licence must not keep pulling
-	 * from a repository it should never have known about. A constant leaves a way
-	 * in for our own development builds.
-	 */
-	public static function source(): string {
-		$source = defined( 'WC_STORE_ENHANCER_UPDATE_SOURCE' ) ? (string) WC_STORE_ENHANCER_UPDATE_SOURCE : 'license';
-		return in_array( $source, [ 'license', 'github', 'url' ], true ) ? $source : 'license';
-	}
-
-	public static function get_settings(): array {
-		$settings = wp_parse_args( (array) get_option( self::OPTION, [] ), [
-			'source' => 'license',
-			'repo'   => 'multidigitalltd/wc-bump',
-			'token'  => '',
-			'url'    => '',
-		] );
-
-		// Prefer a token defined outside the database (e.g. in wp-config.php):
-		// keeping the secret out of the options table is the recommended practice.
-		if ( defined( 'WC_STORE_ENHANCER_GITHUB_TOKEN' ) && '' !== (string) WC_STORE_ENHANCER_GITHUB_TOKEN ) {
-			$settings['token'] = (string) WC_STORE_ENHANCER_GITHUB_TOKEN;
-		}
-
-		return $settings;
-	}
-
-	/** Whether the token is supplied via constant (and therefore not editable in the UI). */
-	private function token_is_constant(): bool {
-		return defined( 'WC_STORE_ENHANCER_GITHUB_TOKEN' ) && '' !== (string) WC_STORE_ENHANCER_GITHUB_TOKEN;
 	}
 
 	private function current_version(): string {
@@ -133,81 +83,12 @@ class WC_Order_Upsale_Updater {
 			}
 		}
 
-		$settings = self::get_settings();
-
-		switch ( self::source() ) {
-			case 'license':
-				$info = $this->fetch_licensed_manifest();
-				break;
-			case 'url':
-				$info = $this->fetch_custom_manifest( $settings['url'] );
-				break;
-			default:
-				$info = $this->fetch_github_release( $settings['repo'], $settings['token'] );
-		}
+		$info = $this->fetch_licensed_manifest();
 
 		// Cache both hits and misses (as a sentinel) to avoid hammering the API.
 		set_site_transient( self::CACHE_KEY, $info ?: 0, self::CACHE_TTL );
 
 		return $info;
-	}
-
-	private function fetch_github_release( string $repo, string $token ) {
-		$repo = trim( $repo, " /\t\n\r" );
-		if ( ! preg_match( '#^[\w.-]+/[\w.-]+$#', $repo ) ) {
-			return null;
-		}
-
-		$headers = [
-			'Accept'     => 'application/vnd.github+json',
-			'User-Agent' => 'wc-store-enhancer-updater',
-		];
-		if ( '' !== $token ) {
-			$headers['Authorization'] = 'Bearer ' . $token;
-		}
-
-		$response = wp_safe_remote_get( "https://api.github.com/repos/{$repo}/releases/latest", [
-			'timeout' => 15,
-			'headers' => $headers,
-		] );
-
-		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			return null;
-		}
-
-		$body = json_decode( wp_remote_retrieve_body( $response ) );
-		if ( ! is_object( $body ) || empty( $body->tag_name ) ) {
-			return null;
-		}
-
-		$download = '';
-
-		// For a private repo (token set) the source zipball is the reliable
-		// download: it accepts the Authorization header and 302-redirects to an
-		// already-authenticated codeload URL. Release *assets* on github.com do
-		// not, so only prefer a .zip asset for public (token-less) repos.
-		if ( '' === $token && ! empty( $body->assets ) && is_array( $body->assets ) ) {
-			foreach ( $body->assets as $asset ) {
-				if ( ! empty( $asset->browser_download_url ) && '.zip' === strtolower( substr( (string) $asset->name, -4 ) ) ) {
-					$download = $asset->browser_download_url;
-					break;
-				}
-			}
-		}
-		if ( '' === $download && ! empty( $body->zipball_url ) ) {
-			$download = $body->zipball_url;
-		}
-
-		return (object) [
-			'version'      => ltrim( (string) $body->tag_name, 'vV' ),
-			'download_url' => $download,
-			'homepage'     => ! empty( $body->html_url ) ? $body->html_url : "https://github.com/{$repo}",
-			'requires'     => '6.4',
-			'requires_php' => '8.0',
-			'tested'       => '9.9',
-			'changelog'    => ! empty( $body->body ) ? (string) $body->body : '',
-			'last_updated' => ! empty( $body->published_at ) ? (string) $body->published_at : '',
-		];
 	}
 
 	/**
@@ -228,27 +109,6 @@ class WC_Order_Upsale_Updater {
 		}
 
 		return $this->normalise_manifest( (object) $result['data'] );
-	}
-
-	private function fetch_custom_manifest( string $url ) {
-		$url = esc_url_raw( trim( $url ) );
-		// Require HTTPS: the fetched manifest ultimately determines the package
-		// that gets installed as PHP, so TLS is the integrity guarantee.
-		if ( '' === $url || 0 !== stripos( $url, 'https://' ) ) {
-			return null;
-		}
-
-		// wp_safe_remote_get() applies reject_unsafe_urls, blocking loopback,
-		// link-local and private-range hosts (SSRF hardening) for this
-		// operator-supplied URL.
-		$response = wp_safe_remote_get( $url, [ 'timeout' => 15 ] );
-		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			return null;
-		}
-
-		$data = json_decode( wp_remote_retrieve_body( $response ) );
-
-		return $this->normalise_manifest( $data );
 	}
 
 	/**
@@ -377,42 +237,11 @@ class WC_Order_Upsale_Updater {
 		return $source;
 	}
 
-	/**
-	 * Attach the configured GitHub token when WordPress downloads the update
-	 * package, so private-repo zipballs can be fetched.
-	 *
-	 * Scoped to the exact package URL this plugin resolved and only for the
-	 * GitHub API/codeload hosts — so the token is never carried onto unrelated
-	 * requests or leaked onto the signed CDN (objects.githubusercontent.com)
-	 * that release-asset URLs redirect to.
-	 */
-	public function authorize_download( $args, $url ) {
-		$settings = self::get_settings();
-		if ( 'github' !== self::source() || '' === $settings['token'] ) {
-			return $args;
-		}
-
-		$remote = $this->get_remote();
-		if ( ! $remote || empty( $remote->download_url ) || (string) $url !== (string) $remote->download_url ) {
-			return $args;
-		}
-
-		$host = wp_parse_url( (string) $url, PHP_URL_HOST );
-		if ( in_array( $host, [ 'api.github.com', 'codeload.github.com' ], true ) ) {
-			if ( ! isset( $args['headers'] ) || ! is_array( $args['headers'] ) ) {
-				$args['headers'] = [];
-			}
-			$args['headers']['Authorization'] = 'Bearer ' . $settings['token'];
-		}
-		return $args;
-	}
-
 	public function clear_cache(): void {
 		delete_site_transient( self::CACHE_KEY );
 	}
 
 	/* ─────────────────────────── Settings tab ───────────────────────── */
-
 
 	public function manual_check(): void {
 		if ( ! check_admin_referer( 'wc_store_enhancer_check_update' ) ) {
@@ -431,5 +260,4 @@ class WC_Order_Upsale_Updater {
 		exit;
 	}
 
-	/** Tab body rendered inside the shared settings page (no outer .wrap/h1). */
 }

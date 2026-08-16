@@ -134,7 +134,19 @@ class WC_Order_Upsale_Modules {
 		return $states;
 	}
 
+	/**
+	 * Whether a module should actually run.
+	 *
+	 * Gated on the site having held a licence at some point, not on the licence
+	 * being valid right now. A shop whose licence lapsed keeps everything it was
+	 * using; a copy that was never licensed runs nothing. The toggles themselves
+	 * stay editable either way, so a shop can set itself up before its key
+	 * arrives and have it all come on at once.
+	 */
 	public static function is_enabled( string $id ): bool {
+		if ( class_exists( 'WC_Order_Upsale_License' ) && ! WC_Order_Upsale_License::has_been_licensed() ) {
+			return false;
+		}
 		return self::get_states()[ $id ] ?? false;
 	}
 
