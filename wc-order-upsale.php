@@ -2,7 +2,7 @@
 /**
  * Plugin Name: משפר חנויות ווקומרס
  * Description: משפר חנויות ווקומרס — אפסייל בצ'קאאוט + הצגת וריאציות המוצר ככפתורים יפים (מידה, אורך, צבע).
- * Version: 1.21.0
+ * Version: 1.22.0
  * Author: Multi Digital
  * Author URI: https://m-d.co.il
  * Requires at least: 6.4
@@ -27,7 +27,7 @@ if ( defined( 'WC_ORDER_UPSALE_VERSION' ) ) {
 	return;
 }
 
-define( 'WC_ORDER_UPSALE_VERSION', '1.21.0' );
+define( 'WC_ORDER_UPSALE_VERSION', '1.22.0' );
 define( 'WC_ORDER_UPSALE_FILE', __FILE__ );
 define( 'WC_ORDER_UPSALE_BASENAME', plugin_basename( __FILE__ ) );
 define( 'WC_ORDER_UPSALE_PATH', plugin_dir_path( __FILE__ ) );
@@ -48,6 +48,7 @@ register_activation_hook( __FILE__, function () {
 // Clear scheduled events on deactivation.
 register_deactivation_hook( __FILE__, function () {
 	wp_clear_scheduled_hook( 'wcse_ab_scan' );
+	wp_clear_scheduled_hook( 'wcse_license_check' );
 } );
 
 // HPOS compatibility declaration
@@ -59,7 +60,9 @@ add_action( 'before_woocommerce_init', function () {
 
 // Self-update checker — runs independently of WooCommerce so the site can always
 // pull new versions of the plugin from the configured source (GitHub / custom URL).
+require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-license.php';
 require_once WC_ORDER_UPSALE_PATH . 'includes/class-wc-order-upsale-updater.php';
+new WC_Order_Upsale_License();
 new WC_Order_Upsale_Updater( WC_ORDER_UPSALE_FILE );
 
 add_action( 'plugins_loaded', function () {

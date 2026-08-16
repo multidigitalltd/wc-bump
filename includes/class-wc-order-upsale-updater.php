@@ -73,7 +73,7 @@ class WC_Order_Upsale_Updater {
 
 	public static function get_settings(): array {
 		$settings = wp_parse_args( (array) get_option( self::OPTION, [] ), [
-			'source' => 'github',
+			'source' => 'license',
 			'repo'   => 'multidigitalltd/wc-bump',
 			'token'  => '',
 			'url'    => '',
@@ -133,9 +133,17 @@ class WC_Order_Upsale_Updater {
 		}
 
 		$settings = self::get_settings();
-		$info     = 'url' === $settings['source']
-			? $this->fetch_custom_manifest( $settings['url'] )
-			: $this->fetch_github_release( $settings['repo'], $settings['token'] );
+
+		switch ( $settings['source'] ) {
+			case 'license':
+				$info = $this->fetch_licensed_manifest();
+				break;
+			case 'url':
+				$info = $this->fetch_custom_manifest( $settings['url'] );
+				break;
+			default:
+				$info = $this->fetch_github_release( $settings['repo'], $settings['token'] );
+		}
 
 		// Cache both hits and misses (as a sentinel) to avoid hammering the API.
 		set_site_transient( self::CACHE_KEY, $info ?: 0, self::CACHE_TTL );
@@ -201,6 +209,26 @@ class WC_Order_Upsale_Updater {
 		];
 	}
 
+	/**
+	 * Ask the licence server for the build this site is entitled to.
+	 *
+	 * A shop without a valid licence is told there is no update rather than
+	 * being handed a package it may not install — the licence gates updates and
+	 * nothing else, so this is the only place enforcement happens.
+	 */
+	private function fetch_licensed_manifest() {
+		if ( ! class_exists( 'WC_Order_Upsale_License' ) || ! WC_Order_Upsale_License::is_valid() ) {
+			return null;
+		}
+
+		$result = WC_Order_Upsale_License::request( 'update', [ 'key' => WC_Order_Upsale_License::key() ] );
+		if ( ! $result['ok'] ) {
+			return null;
+		}
+
+		return $this->normalise_manifest( (object) $result['data'] );
+	}
+
 	private function fetch_custom_manifest( string $url ) {
 		$url = esc_url_raw( trim( $url ) );
 		// Require HTTPS: the fetched manifest ultimately determines the package
@@ -218,11 +246,23 @@ class WC_Order_Upsale_Updater {
 		}
 
 		$data = json_decode( wp_remote_retrieve_body( $response ) );
+
+		return $this->normalise_manifest( $data );
+	}
+
+	/**
+	 * Validate and normalise a manifest from any source.
+	 *
+	 * The package it names is installed as executable PHP, so an HTTPS package
+	 * URL is non-negotiable regardless of which source produced it.
+	 *
+	 * @param mixed $data Decoded manifest.
+	 */
+	private function normalise_manifest( $data ) {
 		if ( ! is_object( $data ) || empty( $data->version ) || empty( $data->download_url ) ) {
 			return null;
 		}
 
-		// The package is installed as executable PHP — only accept an HTTPS package URL.
 		$download_url = esc_url_raw( (string) $data->download_url );
 		if ( 0 !== stripos( $download_url, 'https://' ) ) {
 			return null;
@@ -388,9 +428,9 @@ class WC_Order_Upsale_Updater {
 		$token_input = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) );
 		$token       = ( '' === $token_input || $this->token_is_constant() ) ? $existing_token : $token_input;
 
-		$source = in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true )
+		$source = in_array( $_POST['source'] ?? '', [ 'license', 'github', 'url' ], true )
 			? sanitize_key( wp_unslash( $_POST['source'] ) )
-			: 'github';
+			: 'license';
 
 		// autoload=false: this option can hold a secret token, so it must never be
 		// pulled into the alloptions cache on every page load.
@@ -488,6 +528,7 @@ class WC_Order_Upsale_Updater {
 						<th scope="row"><label for="wcse-source"><?php esc_html_e( 'סוג מקור', 'wc-order-upsale' ); ?></label></th>
 						<td>
 							<select id="wcse-source" name="source">
+								<option value="license" <?php selected( $settings['source'], 'license' ); ?>><?php esc_html_e( 'שרת הרישיונות (ברירת מחדל)', 'wc-order-upsale' ); ?></option>
 								<option value="github" <?php selected( $settings['source'], 'github' ); ?>><?php esc_html_e( 'GitHub Releases', 'wc-order-upsale' ); ?></option>
 								<option value="url"    <?php selected( $settings['source'], 'url' ); ?>><?php esc_html_e( 'כתובת JSON מותאמת', 'wc-order-upsale' ); ?></option>
 							</select>
