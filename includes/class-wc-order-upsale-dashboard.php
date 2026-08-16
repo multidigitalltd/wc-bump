@@ -197,6 +197,18 @@ class WC_Order_Upsale_Dashboard {
 				<?php endif; ?>
 			</div>
 
+			<?php if ( class_exists( 'WC_Order_Upsale_License' ) && ! WC_Order_Upsale_License::has_been_licensed() ) : ?>
+				<div class="notice notice-warning inline" style="max-width:820px">
+					<p>
+						<strong><?php esc_html_e( 'המודולים אינם פעילים עדיין — נדרש מפתח רישיון.', 'wc-order-upsale' ); ?></strong><br>
+						<?php esc_html_e( 'אפשר להגדיר הכל כאן מראש; ההגדרות נשמרות, והמודולים שסימנתם ידלקו ברגע שהמפתח יוזן. לאחר ההפעלה הם ימשיכו לעבוד גם אם הרישיון יפוג — אז רק העדכונים נעצרים.', 'wc-order-upsale' ); ?>
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=license' ) ); ?>">
+							<?php esc_html_e( 'הזנת מפתח רישיון', 'wc-order-upsale' ); ?>
+						</a>
+					</p>
+				</div>
+			<?php endif; ?>
+
 			<?php $this->render_impact(); ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -277,7 +289,8 @@ class WC_Order_Upsale_Dashboard {
 		$headline = WC_Order_Upsale_Impact::headline();
 		$defs     = WC_Order_Upsale_Modules::definitions();
 
-		// Only modules that can be credited to an order appear here.
+		// Only modules that can be credited to an order appear here; the synthetic
+		// total row is the headline, not a module.
 		$tracked = [ 'order_upsale', 'abandoned_cart', 'back_in_stock', 'buy_now', 'sticky_atc' ];
 		$rows    = [];
 		foreach ( $tracked as $id ) {
@@ -303,7 +316,7 @@ class WC_Order_Upsale_Dashboard {
 					</div>
 					<div>
 						<span class="wcse-impact-num"><?php echo wp_kses_post( wc_price( $headline['revenue'] ) ); ?></span>
-						<span class="wcse-impact-cap"><?php esc_html_e( 'הכנסה בהשתתפותם', 'wc-order-upsale' ); ?></span>
+						<span class="wcse-impact-cap"><?php esc_html_e( 'שווי ההזמנות האלה', 'wc-order-upsale' ); ?></span>
 					</div>
 				</div>
 
@@ -312,7 +325,7 @@ class WC_Order_Upsale_Dashboard {
 						<tr>
 							<th><?php esc_html_e( 'מודול', 'wc-order-upsale' ); ?></th>
 							<th><?php esc_html_e( 'הזמנות', 'wc-order-upsale' ); ?></th>
-							<th><?php esc_html_e( 'הכנסה', 'wc-order-upsale' ); ?></th>
+							<th><?php esc_html_e( 'שווי ההזמנות', 'wc-order-upsale' ); ?></th>
 							<th><?php esc_html_e( 'פירוט', 'wc-order-upsale' ); ?></th>
 						</tr>
 					</thead>
@@ -326,11 +339,12 @@ class WC_Order_Upsale_Dashboard {
 								<?php
 								if ( 'order_upsale' === $id && ! empty( $data['impressions'] ) ) {
 									printf(
-										/* translators: 1: impressions, 2: add to cart, 3: conversion rate */
-										esc_html__( '%1$s הצגות · %2$s הוספות לסל · %3$s המרה', 'wc-order-upsale' ),
+										/* translators: 1: impressions, 2: add to cart, 3: conversion rate, 4: revenue from the upsale items themselves */
+										esc_html__( '%1$s הצגות · %2$s הוספות לסל · %3$s המרה · %4$s מהאפסייל עצמו', 'wc-order-upsale' ),
 										esc_html( number_format_i18n( (int) $data['impressions'] ) ),
 										esc_html( number_format_i18n( (int) ( $data['add_to_cart'] ?? 0 ) ) ),
-										esc_html( WC_Order_Upsale_Analytics::format_rate( (int) ( $data['orders'] ?? 0 ), (int) $data['impressions'] ) )
+										esc_html( WC_Order_Upsale_Analytics::format_rate( (int) ( $data['orders'] ?? 0 ), (int) $data['impressions'] ) ),
+										wp_kses_post( wc_price( (float) ( $data['direct_revenue'] ?? 0 ) ) )
 									);
 								} elseif ( 'abandoned_cart' === $id && ! empty( $data['sent'] ) ) {
 									printf(
@@ -349,7 +363,7 @@ class WC_Order_Upsale_Dashboard {
 			<?php endif; ?>
 
 			<p class="description wcse-impact-note">
-				<?php esc_html_e( 'המספרים סופרים הזמנות שהלקוח באמת השתמש במודול בדרך אליהן — לא הערכה של כמה היה נמכר בלעדיו. הזמנה שעברה דרך שני מודולים נספרת לשניהם, ולכן הסכום עשוי לחרוג מסך ההזמנות בפועל.', 'wc-order-upsale' ); ?>
+				<?php esc_html_e( 'המספרים סופרים הזמנות שהלקוח באמת השתמש במודול בדרך אליהן — לא הערכה של כמה היה נמכר בלעדיו. המספרים למעלה סופרים כל הזמנה פעם אחת בלבד. בטבלה, הזמנה שעברה דרך שני מודולים מופיעה אצל שניהם, ולכן חיבור השורות ייתן יותר מהסכום האמיתי.', 'wc-order-upsale' ); ?>
 			</p>
 		</div>
 		<?php

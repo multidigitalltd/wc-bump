@@ -37,6 +37,8 @@ class WC_Order_Upsale_License {
 	public function __construct() {
 		add_action( self::CRON_HOOK, [ $this, 'scheduled_check' ] );
 		add_action( 'init', [ $this, 'maybe_schedule' ] );
+		// Runs once: an install that predates licensing keeps its modules.
+		add_action( 'init', [ __CLASS__, 'grandfather' ], 1 );
 
 		add_filter( 'wc_store_enhancer_settings_tabs',              [ $this, 'register_settings_tab' ], 88 );
 		add_action( 'admin_post_wc_store_enhancer_license_save',    [ $this, 'handle_save' ] );
@@ -57,6 +59,9 @@ class WC_Order_Upsale_License {
 			'sites_used'  => 0,
 			'message'     => '',
 			'checked_at'  => '',
+			// Sticky: set the first time a key validates, and never cleared by a
+			// later refusal. See has_been_licensed().
+			'ever_valid'  => 0,
 		] );
 	}
 
@@ -66,6 +71,21 @@ class WC_Order_Upsale_License {
 
 	public static function key(): string {
 		return (string) self::get()['key'];
+	}
+
+	/**
+	 * Has this site ever held a working licence?
+	 *
+	 * The distinction that matters is not "is the licence valid now" but "was it
+	 * ever". A shop that activated and later lapsed has paid; its modules keep
+	 * running, and a server outage or an expiry never reaches the storefront. A
+	 * copy that was never licensed at all has bought nothing, and gets nothing.
+	 *
+	 * Deliberately sticky: nothing the server can say later takes it away. Only
+	 * the shop removing its own key does.
+	 */
+	public static function has_been_licensed(): bool {
+		return ! empty( self::get()['ever_valid'] );
 	}
 
 	/** True when this site may receive updates. */
@@ -167,14 +187,41 @@ class WC_Order_Upsale_License {
 
 	/** Store whatever the server said about this licence. */
 	private static function absorb( array $data ): void {
+		$status = (string) ( $data['status'] ?? 'invalid' );
+
+		if ( 'valid' === $status ) {
+			self::put( [ 'ever_valid' => 1 ] );
+		}
+
 		self::put( [
-			'status'      => (string) ( $data['status'] ?? 'invalid' ),
+			'status'      => $status,
 			'expires'     => (string) ( $data['expires'] ?? '' ),
 			'sites_limit' => (int) ( $data['sites_limit'] ?? 0 ),
 			'sites_used'  => (int) ( $data['sites_used'] ?? 0 ),
 			'message'     => (string) ( $data['message'] ?? '' ),
 			'checked_at'  => current_time( 'mysql' ),
 		] );
+	}
+
+	/**
+	 * Carry an install that predates licensing.
+	 *
+	 * A shop that has been running these modules for months must not have them
+	 * switch off because it updated the plugin. If module states were already
+	 * saved before a licence option existed, that shop is treated as licensed.
+	 */
+	public static function grandfather(): void {
+		if ( false !== get_option( self::OPTION, false ) ) {
+			return;
+		}
+		if ( false === get_option( 'wc_store_enhancer_modules', false ) ) {
+			return;
+		}
+
+		update_option( self::OPTION, array_merge( self::get(), [
+			'ever_valid' => 1,
+			'status'     => 'inactive',
+		] ), false );
 	}
 
 	/* ─────────────────────────── Operations ─────────────────────────── */
