@@ -66,22 +66,35 @@
 			var $msg = $wrap.find( '.wcse-bis-msg' );
 			var $btn = $f.find( 'button[type="submit"]' );
 
-			if ( ! $f.find( '[name="consent"]' ).is( ':checked' ) ) {
-				$msg.text( i18n.error || 'Error' ).show();
+			// Which boxes are required is whatever the form was rendered with; the
+			// server checks the same thing again against its own settings.
+			var $boxes  = $f.find( 'input[type="checkbox"][data-required]' );
+			var missing = $boxes.filter( '[data-required="1"]' ).filter( function () {
+				return ! this.checked;
+			} ).length > 0;
+
+			if ( missing ) {
+				$msg.text( i18n.consent || i18n.error || 'Error' ).show();
+				$boxes.filter( '[data-required="1"]' ).not( ':checked' ).first().trigger( 'focus' );
 				return;
 			}
 
 			$btn.prop( 'disabled', true );
 
-			$.post( cfg.ajaxUrl, {
+			var payload = {
 				action: 'wcse_bis_subscribe',
 				nonce: cfg.nonce,
 				name: $f.find( '[name="name"]' ).val(),
 				email: $f.find( '[name="email"]' ).val(),
-				consent: $f.find( '[name="consent"]' ).is( ':checked' ) ? 1 : 0,
 				product_id: $f.find( '[name="product_id"]' ).val(),
 				variation_id: $f.find( '[name="variation_id"]' ).val()
-			} ).done( function ( res ) {
+			};
+
+			$boxes.each( function () {
+				payload[ this.name ] = this.checked ? 1 : 0;
+			} );
+
+			$.post( cfg.ajaxUrl, payload ).done( function ( res ) {
 				if ( res && res.success ) {
 					$f.hide();
 					$msg.text( ( res.data && res.data.message ) || i18n.success || '' ).show();
