@@ -186,6 +186,38 @@ class WC_Order_Upsale_Analytics {
 	 *
 	 * @return array<int,array{impressions:int,add_to_cart:int,conversions:int,revenue:float}>
 	 */
+	/**
+	 * Store-wide totals in one aggregate query.
+	 *
+	 * get_all_stats() groups by product, which is what the per-product report
+	 * needs but means loading a row per upsale just to add them up. The
+	 * dashboard only wants the sums.
+	 */
+	public static function totals(): array {
+		global $wpdb;
+		$table = self::table_name();
+
+		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL
+			"SELECT COALESCE(SUM(impressions),0) AS impressions,
+					COALESCE(SUM(add_to_cart),0) AS add_to_cart,
+					COALESCE(SUM(conversions),0) AS conversions,
+					COALESCE(SUM(revenue),0)     AS revenue
+			 FROM {$table}",
+			ARRAY_A
+		);
+
+		if ( ! $row ) {
+			return self::blank_stats();
+		}
+
+		return [
+			'impressions' => (int) $row['impressions'],
+			'add_to_cart' => (int) $row['add_to_cart'],
+			'conversions' => (int) $row['conversions'],
+			'revenue'     => (float) $row['revenue'],
+		];
+	}
+
 	public static function get_all_stats( ?string $from = null, ?string $to = null ): array {
 		global $wpdb;
 		$table = self::table_name();
