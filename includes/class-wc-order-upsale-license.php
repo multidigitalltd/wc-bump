@@ -89,9 +89,16 @@ class WC_Order_Upsale_License {
 		return untrailingslashit( (string) apply_filters( 'wc_store_enhancer_license_api', $api ) );
 	}
 
-	/** The identity a licence is bound to. */
+	/**
+	 * The identity a licence is bound to.
+	 *
+	 * Sent exactly as WordPress reports it. The server normalises scheme, "www."
+	 * and the trailing slash and matches case-insensitively, so a shop moving to
+	 * HTTPS or restoring a backup is still the same site to it. Normalising here
+	 * as well would put a second, divergent opinion in the loop.
+	 */
 	public static function site(): string {
-		return untrailingslashit( home_url() );
+		return home_url();
 	}
 
 	/* ─────────────────────────── Transport ──────────────────────────── */
@@ -137,6 +144,16 @@ class WC_Order_Upsale_License {
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		// 429 and 5xx say nothing about the licence — they say the server could
+		// not answer right now. Naming that plainly keeps a shop from reading a
+		// maintenance window as a revocation.
+		if ( 429 === $code ) {
+			return [ 'ok' => false, 'data' => $data, 'error' => __( 'יותר מדי בקשות לשרת הרישיונות. נסו שוב בעוד דקה.', 'wc-order-upsale' ) ];
+		}
+		if ( $code >= 500 ) {
+			return [ 'ok' => false, 'data' => $data, 'error' => __( 'שרת הרישיונות אינו זמין כרגע. המצב הקודם נשמר.', 'wc-order-upsale' ) ];
+		}
 		if ( $code >= 400 ) {
 			return [
 				'ok'    => false,
@@ -378,12 +395,20 @@ class WC_Order_Upsale_License {
 							<td><?php echo esc_html( date_i18n( get_option( 'date_format' ), strtotime( (string) $state['expires'] ) ) ); ?></td>
 						</tr>
 					<?php endif; ?>
-					<?php if ( $state['sites_limit'] ) : ?>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'אתרים', 'wc-order-upsale' ); ?></th>
-							<td><?php echo esc_html( sprintf( '%d / %d', (int) $state['sites_used'], (int) $state['sites_limit'] ) ); ?></td>
-						</tr>
-					<?php endif; ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'אתרים', 'wc-order-upsale' ); ?></th>
+						<td>
+							<?php
+							echo $state['sites_limit']
+								? esc_html( sprintf( '%d / %d', (int) $state['sites_used'], (int) $state['sites_limit'] ) )
+								: esc_html( sprintf(
+									/* translators: %d: sites currently registered */
+									__( '%d — ללא הגבלה', 'wc-order-upsale' ),
+									(int) $state['sites_used']
+								) );
+							?>
+						</td>
+					</tr>
 					<?php if ( $state['checked_at'] ) : ?>
 						<tr>
 							<th scope="row"><?php esc_html_e( 'נבדק לאחרונה', 'wc-order-upsale' ); ?></th>

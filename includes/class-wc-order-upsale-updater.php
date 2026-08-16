@@ -260,6 +260,9 @@ class WC_Order_Upsale_Updater {
 	 * @param mixed $data Decoded manifest.
 	 */
 	private function normalise_manifest( $data ) {
+		// A licensed reply with no version is "nothing published yet", not a
+		// failure — the caller shows no update either way, and neither case is
+		// worth surfacing to a shop as an error.
 		if ( ! is_object( $data ) || empty( $data->version ) || empty( $data->download_url ) ) {
 			return null;
 		}
