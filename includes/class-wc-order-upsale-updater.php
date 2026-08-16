@@ -49,8 +49,6 @@ class WC_Order_Upsale_Updater {
 		add_action( 'upgrader_process_complete',             [ $this, 'clear_cache' ] );
 
 		// Admin: settings tab on the shared page (kept last) + manual "check now".
-		add_filter( 'wc_store_enhancer_settings_tabs',            [ $this, 'register_settings_tab' ], 90 );
-		add_action( 'admin_post_wc_store_enhancer_save_update',   [ $this, 'save_settings' ] );
 		add_action( 'admin_post_wc_store_enhancer_check_update',  [ $this, 'manual_check' ] );
 	}
 
@@ -58,22 +56,25 @@ class WC_Order_Upsale_Updater {
 	 * Register the "עדכונים" tab — only for users who can actually manage plugin
 	 * updates, so it never shows to shop managers.
 	 */
-	public function register_settings_tab( array $tabs ): array {
-		if ( current_user_can( 'update_plugins' ) ) {
-			$tabs[] = [
-				'id'       => 'updates',
-				'label'    => __( 'עדכונים', 'wc-order-upsale' ),
-				'callback' => [ $this, 'render_settings_tab' ],
-			];
-		}
-		return $tabs;
-	}
 
 	/* ─────────────────────────── Settings ───────────────────────────── */
 
+	/**
+	 * Update source.
+	 *
+	 * Always the licence server for a customer install — there is no setting for
+	 * it any more, and an install that predates the licence must not keep pulling
+	 * from a repository it should never have known about. A constant leaves a way
+	 * in for our own development builds.
+	 */
+	public static function source(): string {
+		$source = defined( 'WC_STORE_ENHANCER_UPDATE_SOURCE' ) ? (string) WC_STORE_ENHANCER_UPDATE_SOURCE : 'license';
+		return in_array( $source, [ 'license', 'github', 'url' ], true ) ? $source : 'license';
+	}
+
 	public static function get_settings(): array {
 		$settings = wp_parse_args( (array) get_option( self::OPTION, [] ), [
-			'source' => 'github',
+			'source' => 'license',
 			'repo'   => 'multidigitalltd/wc-bump',
 			'token'  => '',
 			'url'    => '',
@@ -133,9 +134,17 @@ class WC_Order_Upsale_Updater {
 		}
 
 		$settings = self::get_settings();
-		$info     = 'url' === $settings['source']
-			? $this->fetch_custom_manifest( $settings['url'] )
-			: $this->fetch_github_release( $settings['repo'], $settings['token'] );
+
+		switch ( self::source() ) {
+			case 'license':
+				$info = $this->fetch_licensed_manifest();
+				break;
+			case 'url':
+				$info = $this->fetch_custom_manifest( $settings['url'] );
+				break;
+			default:
+				$info = $this->fetch_github_release( $settings['repo'], $settings['token'] );
+		}
 
 		// Cache both hits and misses (as a sentinel) to avoid hammering the API.
 		set_site_transient( self::CACHE_KEY, $info ?: 0, self::CACHE_TTL );
@@ -201,6 +210,26 @@ class WC_Order_Upsale_Updater {
 		];
 	}
 
+	/**
+	 * Ask the licence server for the build this site is entitled to.
+	 *
+	 * A shop without a valid licence is told there is no update rather than
+	 * being handed a package it may not install — the licence gates updates and
+	 * nothing else, so this is the only place enforcement happens.
+	 */
+	private function fetch_licensed_manifest() {
+		if ( ! class_exists( 'WC_Order_Upsale_License' ) || ! WC_Order_Upsale_License::is_valid() ) {
+			return null;
+		}
+
+		$result = WC_Order_Upsale_License::request( 'update', [ 'key' => WC_Order_Upsale_License::key() ] );
+		if ( ! $result['ok'] ) {
+			return null;
+		}
+
+		return $this->normalise_manifest( (object) $result['data'] );
+	}
+
 	private function fetch_custom_manifest( string $url ) {
 		$url = esc_url_raw( trim( $url ) );
 		// Require HTTPS: the fetched manifest ultimately determines the package
@@ -218,11 +247,26 @@ class WC_Order_Upsale_Updater {
 		}
 
 		$data = json_decode( wp_remote_retrieve_body( $response ) );
+
+		return $this->normalise_manifest( $data );
+	}
+
+	/**
+	 * Validate and normalise a manifest from any source.
+	 *
+	 * The package it names is installed as executable PHP, so an HTTPS package
+	 * URL is non-negotiable regardless of which source produced it.
+	 *
+	 * @param mixed $data Decoded manifest.
+	 */
+	private function normalise_manifest( $data ) {
+		// A licensed reply with no version is "nothing published yet", not a
+		// failure — the caller shows no update either way, and neither case is
+		// worth surfacing to a shop as an error.
 		if ( ! is_object( $data ) || empty( $data->version ) || empty( $data->download_url ) ) {
 			return null;
 		}
 
-		// The package is installed as executable PHP — only accept an HTTPS package URL.
 		$download_url = esc_url_raw( (string) $data->download_url );
 		if ( 0 !== stripos( $download_url, 'https://' ) ) {
 			return null;
@@ -344,7 +388,7 @@ class WC_Order_Upsale_Updater {
 	 */
 	public function authorize_download( $args, $url ) {
 		$settings = self::get_settings();
-		if ( 'github' !== $settings['source'] || '' === $settings['token'] ) {
+		if ( 'github' !== self::source() || '' === $settings['token'] ) {
 			return $args;
 		}
 
@@ -369,42 +413,6 @@ class WC_Order_Upsale_Updater {
 
 	/* ─────────────────────────── Settings tab ───────────────────────── */
 
-	public function save_settings(): void {
-		if ( ! check_admin_referer( 'wc_store_enhancer_update_save', 'wc_store_enhancer_update_nonce' ) ) {
-			wp_die( 'Security check failed' );
-		}
-		if ( ! current_user_can( 'update_plugins' ) ) {
-			wp_die( 'Unauthorized' );
-		}
-
-		// Read the raw stored option (not get_settings(), which may substitute a
-		// constant-defined token) so we never persist the constant into the DB.
-		$stored         = (array) get_option( self::OPTION, [] );
-		$existing_token = isset( $stored['token'] ) ? (string) $stored['token'] : '';
-
-		// The token field is rendered blank (never echoing the secret); an empty
-		// submission keeps the stored token instead of wiping it. When the token is
-		// provided via constant, the UI field is disabled and never overrides it.
-		$token_input = sanitize_text_field( wp_unslash( $_POST['token'] ?? '' ) );
-		$token       = ( '' === $token_input || $this->token_is_constant() ) ? $existing_token : $token_input;
-
-		$source = in_array( $_POST['source'] ?? '', [ 'github', 'url' ], true )
-			? sanitize_key( wp_unslash( $_POST['source'] ) )
-			: 'github';
-
-		// autoload=false: this option can hold a secret token, so it must never be
-		// pulled into the alloptions cache on every page load.
-		update_option( self::OPTION, [
-			'source' => $source,
-			'repo'   => sanitize_text_field( wp_unslash( $_POST['repo'] ?? '' ) ),
-			'token'  => $token,
-			'url'    => esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) ),
-		], false );
-
-		$this->clear_cache();
-		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=updates&saved=1' ) );
-		exit;
-	}
 
 	public function manual_check(): void {
 		if ( ! check_admin_referer( 'wc_store_enhancer_check_update' ) ) {
@@ -419,121 +427,9 @@ class WC_Order_Upsale_Updater {
 		$remote    = $this->get_remote( true );
 		$available = $remote && version_compare( $remote->version, $this->current_version(), '>' );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=updates&checked=' . ( $available ? '1' : '0' ) ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=' . WC_Order_Upsale_Dashboard::SETTINGS_SLUG . '&tab=license&checked=' . ( $available ? '1' : '0' ) ) );
 		exit;
 	}
 
 	/** Tab body rendered inside the shared settings page (no outer .wrap/h1). */
-	public function render_settings_tab(): void {
-		$settings = self::get_settings();
-		$remote   = $this->get_remote();
-		$current  = $this->current_version();
-		?>
-		<div class="wcse-updates">
-			<?php if ( isset( $_GET['saved'] ) ) : ?>
-				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'ההגדרות נשמרו.', 'wc-order-upsale' ); ?></p></div>
-			<?php endif; ?>
-			<?php if ( isset( $_GET['checked'] ) ) : ?>
-				<div class="notice notice-info is-dismissible">
-					<p>
-						<?php
-						echo '1' === $_GET['checked']
-							? esc_html__( 'נמצא עדכון חדש! עברו לעמוד התוספים כדי לעדכן.', 'wc-order-upsale' )
-							: esc_html__( 'התוסף מעודכן לגרסה האחרונה.', 'wc-order-upsale' );
-						?>
-					</p>
-				</div>
-			<?php endif; ?>
-
-			<table class="widefat" style="max-width:640px;margin:12px 0">
-				<tbody>
-					<tr>
-						<td><?php esc_html_e( 'גרסה מותקנת', 'wc-order-upsale' ); ?></td>
-						<td><strong><?php echo esc_html( $current ); ?></strong></td>
-					</tr>
-					<tr>
-						<td><?php esc_html_e( 'הגרסה האחרונה במקור', 'wc-order-upsale' ); ?></td>
-						<td>
-							<?php if ( $remote ) : ?>
-								<strong><?php echo esc_html( $remote->version ); ?></strong>
-								<?php if ( version_compare( $remote->version, $current, '>' ) ) : ?>
-									<span style="color:#7a5c00">— <?php esc_html_e( 'עדכון זמין', 'wc-order-upsale' ); ?></span>
-								<?php else : ?>
-									<span style="color:#125c2b">— <?php esc_html_e( 'מעודכן', 'wc-order-upsale' ); ?></span>
-								<?php endif; ?>
-							<?php else : ?>
-								<em><?php esc_html_e( 'לא ניתן לבדוק כרגע (בדקו את הגדרות המקור).', 'wc-order-upsale' ); ?></em>
-							<?php endif; ?>
-						</td>
-					</tr>
-				</tbody>
-			</table>
-
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
-				<?php wp_nonce_field( 'wc_store_enhancer_check_update' ); ?>
-				<input type="hidden" name="action" value="wc_store_enhancer_check_update">
-				<button type="submit" class="button"><?php esc_html_e( 'בדוק עדכונים עכשיו', 'wc-order-upsale' ); ?></button>
-			</form>
-			<a class="button button-primary" href="<?php echo esc_url( self_admin_url( 'plugins.php' ) ); ?>" style="margin-inline-start:6px">
-				<?php esc_html_e( 'עבור לעמוד התוספים לעדכון', 'wc-order-upsale' ); ?>
-			</a>
-
-			<h2 style="margin-top:26px"><?php esc_html_e( 'מקור העדכונים', 'wc-order-upsale' ); ?></h2>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<?php wp_nonce_field( 'wc_store_enhancer_update_save', 'wc_store_enhancer_update_nonce' ); ?>
-				<input type="hidden" name="action" value="wc_store_enhancer_save_update">
-
-				<table class="form-table">
-					<tr>
-						<th scope="row"><label for="wcse-source"><?php esc_html_e( 'סוג מקור', 'wc-order-upsale' ); ?></label></th>
-						<td>
-							<select id="wcse-source" name="source">
-								<option value="github" <?php selected( $settings['source'], 'github' ); ?>><?php esc_html_e( 'GitHub Releases', 'wc-order-upsale' ); ?></option>
-								<option value="url"    <?php selected( $settings['source'], 'url' ); ?>><?php esc_html_e( 'כתובת JSON מותאמת', 'wc-order-upsale' ); ?></option>
-							</select>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="wcse-repo"><?php esc_html_e( 'מאגר GitHub (owner/repo)', 'wc-order-upsale' ); ?></label></th>
-						<td>
-							<input type="text" id="wcse-repo" name="repo" value="<?php echo esc_attr( $settings['repo'] ); ?>" class="regular-text" placeholder="multidigitalltd/wc-bump">
-							<p class="description"><?php esc_html_e( 'העדכון יימשך מה-Release האחרון של המאגר. עדיף לצרף קובץ zip כ-asset ל-Release.', 'wc-order-upsale' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="wcse-token"><?php esc_html_e( 'GitHub Token (למאגר פרטי)', 'wc-order-upsale' ); ?></label></th>
-						<td>
-							<?php $token_const = $this->token_is_constant(); ?>
-							<input type="password" id="wcse-token" name="token" value="" class="regular-text" autocomplete="off"
-								<?php disabled( $token_const ); ?>
-								placeholder="<?php echo '' !== $settings['token'] ? '••••••••••••' : ''; ?>">
-							<p class="description">
-								<?php if ( $token_const ) : ?>
-									<?php esc_html_e( 'ה-Token מוגדר דרך הקבוע WC_STORE_ENHANCER_GITHUB_TOKEN ב-wp-config.php (מומלץ) ולכן לא ניתן לעריכה כאן.', 'wc-order-upsale' ); ?>
-								<?php else : ?>
-									<?php esc_html_e( 'אופציונלי. נדרש רק אם המאגר פרטי. הרשאת "Contents: read" מספיקה.', 'wc-order-upsale' ); ?>
-									<?php if ( '' !== $settings['token'] ) : ?>
-										<br><?php esc_html_e( 'Token שמור כבר קיים. השאירו ריק כדי לשמור אותו, או הזינו חדש כדי להחליף.', 'wc-order-upsale' ); ?>
-									<?php endif; ?>
-									<br><?php esc_html_e( 'לאבטחה מיטבית ניתן להגדיר במקום זאת: define(\'WC_STORE_ENHANCER_GITHUB_TOKEN\', \'...\'); בקובץ wp-config.php.', 'wc-order-upsale' ); ?>
-								<?php endif; ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="wcse-url"><?php esc_html_e( 'כתובת JSON מותאמת', 'wc-order-upsale' ); ?></label></th>
-						<td>
-							<input type="url" id="wcse-url" name="url" value="<?php echo esc_attr( $settings['url'] ); ?>" class="regular-text" placeholder="https://m-d.co.il/updates/wc-store-enhancer.json">
-							<p class="description"><?php esc_html_e( 'בשימוש רק כאשר סוג המקור הוא "כתובת JSON מותאמת".', 'wc-order-upsale' ); ?></p>
-						</td>
-					</tr>
-				</table>
-
-				<p class="submit">
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'שמור מקור עדכונים', 'wc-order-upsale' ); ?></button>
-				</p>
-			</form>
-		</div>
-		<?php
-	}
 }

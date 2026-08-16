@@ -432,17 +432,26 @@ class WC_Order_Upsale_Abandoned {
 		fputcsv( $handle, $safe, ',', '"', '' );
 	}
 
+	/** Capture/send/recover counts, shared by this tab and the dashboard. */
+	public static function stats(): array {
+		global $wpdb;
+		$table = self::table();
+
+		return [
+			'total'     => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+			'emailed'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'emailed'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+			'sent'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status IN ('emailed','recovered')" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+			'recovered' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'recovered'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+			'revenue'   => (float) $wpdb->get_var( "SELECT COALESCE(SUM(cart_total),0) FROM {$table} WHERE status = 'recovered'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		];
+	}
+
 	public function render_settings_tab(): void {
 		$settings = self::get_settings();
 
 		global $wpdb;
 		$table = self::table();
-		$stats = [
-			'total'     => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-			'emailed'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'emailed'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-			'recovered' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'recovered'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-			'revenue'   => (float) $wpdb->get_var( "SELECT COALESCE(SUM(cart_total),0) FROM {$table} WHERE status = 'recovered'" ), // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
-		];
+		$stats = self::stats();
 		$rows = $wpdb->get_results( "SELECT id, email, name, cart_total, currency, status, created_at FROM {$table} ORDER BY created_at DESC LIMIT 100", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 		?>
 		<div class="wcse-admin">

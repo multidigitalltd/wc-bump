@@ -19,7 +19,7 @@ class WC_Order_Upsale_Backinstock {
 
 	const OPTION          = 'wc_store_enhancer_bis';
 	const DB_VERSION_OPT  = 'wc_store_enhancer_bis_db_version';
-	const DB_VERSION      = '1.3.0';
+	const DB_VERSION      = '1.4.0';
 	const BATCH           = 25;
 	/** Give up on an address after this many failed sends, so a dead mailer cannot loop forever. */
 	const MAX_ATTEMPTS    = 3;
@@ -115,6 +115,8 @@ class WC_Order_Upsale_Backinstock {
 			name VARCHAR(190) NOT NULL DEFAULT '',
 			email VARCHAR(190) NOT NULL DEFAULT '',
 			consent TINYINT(1) NOT NULL DEFAULT 0,
+			consent_2 TINYINT(1) NOT NULL DEFAULT 0,
+			consent_3 TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL,
 			notified_at DATETIME NULL DEFAULT NULL,
 			attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -144,6 +146,10 @@ class WC_Order_Upsale_Backinstock {
 			'button_text'   => '',
 			'title'         => '',
 			'consent_text'  => '',
+			'consent_2_text'     => '',
+			'consent_2_required' => 1,
+			'consent_3_text'     => '',
+			'consent_3_required' => 1,
 			'success_text'  => '',
 			'email_subject' => '',
 			'email_body'    => '',
@@ -161,6 +167,44 @@ class WC_Order_Upsale_Backinstock {
 	private function text( string $key, string $default ): string {
 		$value = (string) ( self::get_settings()[ $key ] ?? '' );
 		return '' !== $value ? $value : $default;
+	}
+
+	/**
+	 * The consent checkboxes to show, in order.
+	 *
+	 * The first is the core one and is always present and always required — it is
+	 * what makes the sign-up itself legitimate. The other two appear only once a
+	 * shop gives them wording, and each carries its own required flag. One list
+	 * so the form, the validation and the stored record cannot drift apart.
+	 *
+	 * @return array<int,array{key:string,column:string,text:string,required:bool}>
+	 */
+	private function consent_boxes(): array {
+		$settings = self::get_settings();
+
+		$boxes = [
+			[
+				'key'      => 'consent',
+				'column'   => 'consent',
+				'text'     => $this->text( 'consent_text', __( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) ),
+				'required' => true,
+			],
+		];
+
+		foreach ( [ 2, 3 ] as $n ) {
+			$text = trim( (string) ( $settings[ "consent_{$n}_text" ] ?? '' ) );
+			if ( '' === $text ) {
+				continue;
+			}
+			$boxes[] = [
+				'key'      => "consent_{$n}",
+				'column'   => "consent_{$n}",
+				'text'     => $text,
+				'required' => ! empty( $settings[ "consent_{$n}_required" ] ),
+			];
+		}
+
+		return $boxes;
 	}
 
 	/* ─────────────────────────── Frontend ───────────────────────────── */
@@ -193,6 +237,7 @@ class WC_Order_Upsale_Backinstock {
 				'success' => $this->text( 'success_text', __( 'תודה! נעדכן אתכם כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) ),
 				'error'   => __( 'אירעה שגיאה. נסו שוב.', 'wc-order-upsale' ),
 				'expired' => __( 'פג תוקף העמוד. רעננו את הדף ונסו שוב.', 'wc-order-upsale' ),
+				'consent' => __( 'יש לסמן את כל האישורים המסומנים בכוכבית.', 'wc-order-upsale' ),
 			],
 		] );
 
@@ -209,6 +254,7 @@ class WC_Order_Upsale_Backinstock {
 			. '.wcse-bis-form input[type=text],.wcse-bis-form input[type=email]{width:100%;max-width:340px}'
 			. '.wcse-bis-consent{display:flex !important;align-items:flex-start;gap:8px}'
 			. '.wcse-bis-consent input{margin-top:.3em;width:auto;max-width:none}'
+			. '.wcse-bis-required{color:#b32d2e}'
 			. '.wcse-bis-msg{margin:10px 0 0}'
 			. '.wcse-bis-msg:empty{display:none;margin:0}'
 		);
@@ -291,7 +337,7 @@ class WC_Order_Upsale_Backinstock {
 		$start_hidden      = $is_variable && ! $variable_sold_out;
 
 		$title    = $this->text( 'title', __( 'רוצים שנעדכן כשחוזר למלאי?', 'wc-order-upsale' ) );
-		$consent  = $this->text( 'consent_text', __( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ) );
+		$consents = $this->consent_boxes();
 		$button   = $this->text( 'button_text', __( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ) );
 		$uid      = 'wcse-bis-' . $product->get_id();
 		?>
@@ -306,12 +352,18 @@ class WC_Order_Upsale_Backinstock {
 					<label for="<?php echo esc_attr( $uid ); ?>-email"><?php esc_html_e( 'אימייל', 'wc-order-upsale' ); ?></label>
 					<input type="email" id="<?php echo esc_attr( $uid ); ?>-email" name="email" autocomplete="email" required>
 				</p>
-				<p>
-					<label class="wcse-bis-consent">
-						<input type="checkbox" name="consent" value="1" required>
-						<span><?php echo esc_html( $consent ); ?></span>
-					</label>
-				</p>
+				<?php foreach ( $consents as $box ) : ?>
+					<p>
+						<label class="wcse-bis-consent">
+							<input type="checkbox"
+								name="<?php echo esc_attr( $box['key'] ); ?>"
+								value="1"
+								data-required="<?php echo $box['required'] ? '1' : '0'; ?>"
+								<?php echo $box['required'] ? 'required' : ''; ?>>
+							<span><?php echo esc_html( $box['text'] ); ?><?php echo $box['required'] ? ' <span class="wcse-bis-required" aria-hidden="true">*</span>' : ''; // phpcs:ignore WordPress.Security.EscapeOutput ?></span>
+						</label>
+					</p>
+				<?php endforeach; ?>
 				<input type="hidden" name="product_id" value="<?php echo esc_attr( (string) $product->get_id() ); ?>">
 				<input type="hidden" name="variation_id" value="0">
 				<button type="submit" class="button"><?php echo esc_html( $button ); ?></button>
@@ -349,15 +401,22 @@ class WC_Order_Upsale_Backinstock {
 
 		$name    = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$email   = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
-		$consent = ! empty( $_POST['consent'] );
 		$product = absint( $_POST['product_id'] ?? 0 );
 		$variant = absint( $_POST['variation_id'] ?? 0 );
 
 		if ( '' === $name || ! is_email( $email ) ) {
 			wp_send_json_error( [ 'message' => __( 'נא למלא שם וכתובת אימייל תקינה.', 'wc-order-upsale' ) ] );
 		}
-		if ( ! $consent ) {
-			wp_send_json_error( [ 'message' => __( 'יש לאשר קבלת דיוור.', 'wc-order-upsale' ) ] );
+
+		// Which boxes are required is decided here, from the saved settings —
+		// never from what the browser sent, which a crafted request controls.
+		$given = [];
+		foreach ( $this->consent_boxes() as $box ) {
+			$ticked = ! empty( $_POST[ $box['key'] ] );
+			if ( $box['required'] && ! $ticked ) {
+				wp_send_json_error( [ 'message' => __( 'יש לסמן את כל האישורים המסומנים בכוכבית.', 'wc-order-upsale' ) ] );
+			}
+			$given[ $box['column'] ] = $ticked ? 1 : 0;
 		}
 		$product_obj = $product ? wc_get_product( $product ) : null;
 		if ( ! $product_obj ) {
@@ -386,18 +445,20 @@ class WC_Order_Upsale_Backinstock {
 		) );
 
 		if ( ! $exists ) {
-			$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				$table,
+			$row = array_merge(
 				[
 					'product_id'   => $product,
 					'variation_id' => $variant,
 					'name'         => $name,
 					'email'        => $email,
-					'consent'      => $consent ? 1 : 0,
 					'created_at'   => current_time( 'mysql' ),
 				],
-				[ '%d', '%d', '%s', '%s', '%d', '%s' ]
+				$given
 			);
+			$formats = [ '%d', '%d', '%s', '%s', '%s' ];
+			$formats = array_merge( $formats, array_fill( 0, count( $given ), '%d' ) );
+
+			$wpdb->insert( $table, $row, $formats ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 		}
 
 		wp_send_json_success( [
@@ -646,6 +707,10 @@ class WC_Order_Upsale_Backinstock {
 			'button_text'   => sanitize_text_field( wp_unslash( $_POST['button_text'] ?? '' ) ),
 			'title'         => sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
 			'consent_text'  => sanitize_text_field( wp_unslash( $_POST['consent_text'] ?? '' ) ),
+			'consent_2_text'     => sanitize_text_field( wp_unslash( $_POST['consent_2_text'] ?? '' ) ),
+			'consent_2_required' => empty( $_POST['consent_2_required'] ) ? 0 : 1,
+			'consent_3_text'     => sanitize_text_field( wp_unslash( $_POST['consent_3_text'] ?? '' ) ),
+			'consent_3_required' => empty( $_POST['consent_3_required'] ) ? 0 : 1,
 			'success_text'  => sanitize_text_field( wp_unslash( $_POST['success_text'] ?? '' ) ),
 			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? '' ) ),
 			// The body may carry simple formatting, so it keeps the post-safe tags.
@@ -731,7 +796,7 @@ class WC_Order_Upsale_Backinstock {
 
 		global $wpdb;
 		$table = self::table();
-		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, email, consent, created_at, notified_at, attempts, last_error FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
+		$rows  = $wpdb->get_results( "SELECT product_id, variation_id, name, email, consent, consent_2, consent_3, created_at, notified_at, attempts, last_error FROM {$table} ORDER BY created_at DESC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.DirectDatabaseQuery
 
 		nocache_headers();
 		header( 'Content-Type: text/csv; charset=utf-8' );
@@ -739,7 +804,7 @@ class WC_Order_Upsale_Backinstock {
 
 		$out = fopen( 'php://output', 'w' );
 		fputs( $out, "\xEF\xBB\xBF" ); // UTF-8 BOM for Excel.
-		$this->fputcsv_safe( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'created_at', 'notified_at', 'attempts', 'last_error' ] );
+		$this->fputcsv_safe( $out, [ 'product_id', 'variation_id', 'name', 'email', 'consent', 'consent_2', 'consent_3', 'created_at', 'notified_at', 'attempts', 'last_error' ] );
 		foreach ( (array) $rows as $row ) {
 			$this->fputcsv_safe( $out, $row );
 		}
@@ -847,8 +912,45 @@ class WC_Order_Upsale_Backinstock {
 						<td><input type="text" id="wcse-bis-button" name="button_text" value="<?php echo esc_attr( $settings['button_text'] ); ?>" placeholder="<?php esc_attr_e( 'עדכנו אותי כשחוזר למלאי', 'wc-order-upsale' ); ?>" class="regular-text"></td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="wcse-bis-consent"><?php esc_html_e( 'טקסט אישור דיוור', 'wc-order-upsale' ); ?></label></th>
-						<td><input type="text" id="wcse-bis-consent" name="consent_text" value="<?php echo esc_attr( $settings['consent_text'] ); ?>" placeholder="<?php esc_attr_e( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ); ?>" class="large-text"></td>
+						<th scope="row"><label for="wcse-bis-consent"><?php esc_html_e( 'אישור 1 (תמיד מוצג, תמיד חובה)', 'wc-order-upsale' ); ?></label></th>
+						<td>
+							<input type="text" id="wcse-bis-consent" name="consent_text" value="<?php echo esc_attr( $settings['consent_text'] ); ?>" placeholder="<?php esc_attr_e( 'אני מאשר/ת קבלת עדכון חד-פעמי כשהמוצר יחזור למלאי.', 'wc-order-upsale' ); ?>" class="large-text">
+						</td>
+					</tr>
+					<?php foreach ( [ 2, 3 ] as $n ) : ?>
+						<tr>
+							<th scope="row">
+								<label for="wcse-bis-consent-<?php echo (int) $n; ?>">
+									<?php
+									/* translators: %d: checkbox number */
+									printf( esc_html__( 'אישור %d (אופציונלי)', 'wc-order-upsale' ), (int) $n );
+									?>
+								</label>
+							</th>
+							<td>
+								<input type="text"
+									id="wcse-bis-consent-<?php echo (int) $n; ?>"
+									name="consent_<?php echo (int) $n; ?>_text"
+									value="<?php echo esc_attr( (string) ( $settings[ "consent_{$n}_text" ] ?? '' ) ); ?>"
+									placeholder="<?php esc_attr_e( 'השאירו ריק כדי לא להציג את הצ׳קבוקס הזה', 'wc-order-upsale' ); ?>"
+									class="large-text">
+								<p>
+									<label>
+										<input type="hidden" name="consent_<?php echo (int) $n; ?>_required" value="0">
+										<input type="checkbox" name="consent_<?php echo (int) $n; ?>_required" value="1" <?php checked( ! empty( $settings[ "consent_{$n}_required" ] ) ); ?>>
+										<?php esc_html_e( 'חובה — אי אפשר להירשם בלי לסמן אותו', 'wc-order-upsale' ); ?>
+									</label>
+								</p>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					<tr>
+						<th scope="row"></th>
+						<td>
+							<p class="description" style="max-width:620px">
+								<?php esc_html_e( 'אישורים שסומנו כחובה מקבלים כוכבית אדומה בטופס, ונבדקים גם בדפדפן וגם בשרת — בקשה מזויפת לא יכולה לעקוף אותם. מה שהלקוח אישר נשמר לצד ההרשמה ומופיע בייצוא ל-CSV, כדי שתוכלו להוכיח על מה בדיוק הוא הסכים.', 'wc-order-upsale' ); ?>
+							</p>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="wcse-bis-success"><?php esc_html_e( 'הודעת הצלחה', 'wc-order-upsale' ); ?></label></th>

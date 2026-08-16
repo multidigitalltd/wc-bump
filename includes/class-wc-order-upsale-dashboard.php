@@ -191,11 +191,13 @@ class WC_Order_Upsale_Dashboard {
 					<span class="wcse-update-pill wcse-update-current"><?php esc_html_e( 'מעודכן לגרסה האחרונה', 'wc-order-upsale' ); ?></span>
 				<?php endif; ?>
 				<?php if ( $can_update ) : ?>
-					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=updates' ) ); ?>">
-						<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
+					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=license' ) ); ?>">
+						<?php esc_html_e( 'רישיון', 'wc-order-upsale' ); ?>
 					</a>
 				<?php endif; ?>
 			</div>
+
+			<?php $this->render_impact(); ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<?php wp_nonce_field( 'wc_store_enhancer_modules_save', 'wc_store_enhancer_modules_nonce' ); ?>
@@ -260,12 +262,111 @@ class WC_Order_Upsale_Dashboard {
 	}
 
 	/** Service e-mail shown in the "order development" box (filterable). */
+	/**
+	 * Impact panel: what the modules actually did, from real orders.
+	 *
+	 * Everything here is already stored — three aggregate queries behind a short
+	 * transient. Nothing is measured on the storefront to produce it.
+	 */
+	private function render_impact(): void {
+		if ( ! class_exists( 'WC_Order_Upsale_Impact' ) ) {
+			return;
+		}
+
+		$totals   = WC_Order_Upsale_Impact::totals();
+		$headline = WC_Order_Upsale_Impact::headline();
+		$defs     = WC_Order_Upsale_Modules::definitions();
+
+		// Only modules that can be credited to an order appear here.
+		$tracked = [ 'order_upsale', 'abandoned_cart', 'back_in_stock', 'buy_now', 'sticky_atc' ];
+		$rows    = [];
+		foreach ( $tracked as $id ) {
+			$data = $totals[ $id ] ?? [];
+			if ( empty( $data['orders'] ) && empty( $data['revenue'] ) ) {
+				continue;
+			}
+			$rows[ $id ] = $data;
+		}
+		?>
+		<div class="wcse-impact">
+			<h2><?php esc_html_e( 'מה המודולים עשו בפועל', 'wc-order-upsale' ); ?></h2>
+
+			<?php if ( empty( $rows ) ) : ?>
+				<p class="description">
+					<?php esc_html_e( 'עדיין אין נתונים. המספרים מתחילים להצטבר מרגע שלקוחות משתמשים במודולים ומשלימים הזמנות.', 'wc-order-upsale' ); ?>
+				</p>
+			<?php else : ?>
+				<div class="wcse-impact-headline">
+					<div>
+						<span class="wcse-impact-num"><?php echo esc_html( number_format_i18n( $headline['orders'] ) ); ?></span>
+						<span class="wcse-impact-cap"><?php esc_html_e( 'הזמנות בהשתתפות המודולים', 'wc-order-upsale' ); ?></span>
+					</div>
+					<div>
+						<span class="wcse-impact-num"><?php echo wp_kses_post( wc_price( $headline['revenue'] ) ); ?></span>
+						<span class="wcse-impact-cap"><?php esc_html_e( 'הכנסה בהשתתפותם', 'wc-order-upsale' ); ?></span>
+					</div>
+				</div>
+
+				<table class="wp-list-table widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'מודול', 'wc-order-upsale' ); ?></th>
+							<th><?php esc_html_e( 'הזמנות', 'wc-order-upsale' ); ?></th>
+							<th><?php esc_html_e( 'הכנסה', 'wc-order-upsale' ); ?></th>
+							<th><?php esc_html_e( 'פירוט', 'wc-order-upsale' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+					<?php foreach ( $rows as $id => $data ) : ?>
+						<tr>
+							<td><strong><?php echo esc_html( $defs[ $id ]['name'] ?? $id ); ?></strong></td>
+							<td><?php echo esc_html( number_format_i18n( (int) ( $data['orders'] ?? 0 ) ) ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( (float) ( $data['revenue'] ?? 0 ) ) ); ?></td>
+							<td class="description">
+								<?php
+								if ( 'order_upsale' === $id && ! empty( $data['impressions'] ) ) {
+									printf(
+										/* translators: 1: impressions, 2: add to cart, 3: conversion rate */
+										esc_html__( '%1$s הצגות · %2$s הוספות לסל · %3$s המרה', 'wc-order-upsale' ),
+										esc_html( number_format_i18n( (int) $data['impressions'] ) ),
+										esc_html( number_format_i18n( (int) ( $data['add_to_cart'] ?? 0 ) ) ),
+										esc_html( WC_Order_Upsale_Analytics::format_rate( (int) ( $data['orders'] ?? 0 ), (int) $data['impressions'] ) )
+									);
+								} elseif ( 'abandoned_cart' === $id && ! empty( $data['sent'] ) ) {
+									printf(
+										/* translators: 1: mails sent, 2: recovery rate */
+										esc_html__( '%1$s מיילים נשלחו · %2$s שוחזרו', 'wc-order-upsale' ),
+										esc_html( number_format_i18n( (int) $data['sent'] ) ),
+										esc_html( WC_Order_Upsale_Analytics::format_rate( (int) ( $data['orders'] ?? 0 ), (int) $data['sent'] ) )
+									);
+								}
+								?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+
+			<p class="description wcse-impact-note">
+				<?php esc_html_e( 'המספרים סופרים הזמנות שהלקוח באמת השתמש במודול בדרך אליהן — לא הערכה של כמה היה נמכר בלעדיו. הזמנה שעברה דרך שני מודולים נספרת לשניהם, ולכן הסכום עשוי לחרוג מסך ההזמנות בפועל.', 'wc-order-upsale' ); ?>
+			</p>
+		</div>
+		<?php
+	}
+
 	private static function service_email(): string {
 		return sanitize_email( apply_filters( 'wc_store_enhancer_service_email', 'service@multidigital.co.il' ) );
 	}
 
 	private function inline_css(): string {
 		return '
+		.wcse-impact{margin:16px 0;padding:16px 18px;background:#fff;border:1px solid #dcdcde;border-radius:8px}
+		.wcse-impact h2{margin:0 0 12px;font-size:15px}
+		.wcse-impact-headline{display:flex;gap:34px;flex-wrap:wrap;margin:0 0 16px}
+		.wcse-impact-num{display:block;font-size:26px;font-weight:700;line-height:1.2}
+		.wcse-impact-cap{display:block;font-size:12px;opacity:.7}
+		.wcse-impact-note{margin-top:12px;max-width:760px}
 		.wcse-version-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0 8px;padding:12px 16px;background:#fff;border:1px solid #dcdcde;border-radius:8px}
 		.wcse-update-pill{display:inline-flex;align-items:center;gap:8px;padding:2px 10px;border-radius:999px;font-size:13px}
 		.wcse-update-available{background:#fcf3d7;color:#7a5c00}

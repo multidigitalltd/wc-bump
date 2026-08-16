@@ -53,9 +53,23 @@
 
 	var stickyBtn = bar.querySelector( '.wcse-sticky-btn' );
 	if ( stickyBtn ) {
+		// Flags the add-to-cart request as coming from the bar. Reporting only —
+		// it changes nothing about what is added or what it costs.
+		var flagStickyOrigin = function () {
+			if ( ! form || form.querySelector( 'input[name="wcse_sticky"]' ) ) {
+				return;
+			}
+			var flag = document.createElement( 'input' );
+			flag.type  = 'hidden';
+			flag.name  = 'wcse_sticky';
+			flag.value = '1';
+			form.appendChild( flag );
+		};
+
 		stickyBtn.addEventListener( 'click', function () {
 			var blocked = mainBtn && ( mainBtn.disabled || mainBtn.classList.contains( 'disabled' ) );
 			if ( mainBtn && ! blocked ) {
+				flagStickyOrigin();
 				mainBtn.click();
 			} else {
 				( form || target ).scrollIntoView( { behavior: 'smooth', block: 'center' } );
