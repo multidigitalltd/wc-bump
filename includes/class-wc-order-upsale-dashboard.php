@@ -191,8 +191,8 @@ class WC_Order_Upsale_Dashboard {
 					<span class="wcse-update-pill wcse-update-current"><?php esc_html_e( 'מעודכן לגרסה האחרונה', 'wc-order-upsale' ); ?></span>
 				<?php endif; ?>
 				<?php if ( $can_update ) : ?>
-					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=updates' ) ); ?>">
-						<?php esc_html_e( 'ניהול עדכונים', 'wc-order-upsale' ); ?>
+					<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_SLUG . '&tab=license' ) ); ?>">
+						<?php esc_html_e( 'רישיון', 'wc-order-upsale' ); ?>
 					</a>
 				<?php endif; ?>
 			</div>

@@ -24,10 +24,15 @@ class WC_Order_Upsale_License {
 
 	const OPTION    = 'wc_store_enhancer_license';
 	const CRON_HOOK = 'wcse_license_check';
-	const NAMESPACE = 'wcse-license/v1';
 
-	/** Where licences are issued. Override with WC_STORE_ENHANCER_LICENSE_SERVER. */
-	const DEFAULT_SERVER = 'https://multidigital.co.il';
+	/**
+	 * Where licences are issued.
+	 *
+	 * A full base URL including the path, because the server need not be
+	 * WordPress — the four endpoints hang directly off this. Override with
+	 * WC_STORE_ENHANCER_LICENSE_API for staging or a self-hosted build.
+	 */
+	const DEFAULT_API = 'https://app.multidigital.co.il/api/license/v1';
 
 	public function __construct() {
 		add_action( self::CRON_HOOK, [ $this, 'scheduled_check' ] );
@@ -75,13 +80,13 @@ class WC_Order_Upsale_License {
 		return true;
 	}
 
-	public static function server(): string {
-		$server = defined( 'WC_STORE_ENHANCER_LICENSE_SERVER' ) && WC_STORE_ENHANCER_LICENSE_SERVER
-			? (string) WC_STORE_ENHANCER_LICENSE_SERVER
-			: self::DEFAULT_SERVER;
+	public static function api(): string {
+		$api = defined( 'WC_STORE_ENHANCER_LICENSE_API' ) && WC_STORE_ENHANCER_LICENSE_API
+			? (string) WC_STORE_ENHANCER_LICENSE_API
+			: self::DEFAULT_API;
 
-		/** Filter the licence server root, for staging or self-hosting. */
-		return untrailingslashit( (string) apply_filters( 'wc_store_enhancer_license_server', $server ) );
+		/** Filter the licence API base, for staging or self-hosting. */
+		return untrailingslashit( (string) apply_filters( 'wc_store_enhancer_license_api', $api ) );
 	}
 
 	/** The identity a licence is bound to. */
@@ -102,7 +107,7 @@ class WC_Order_Upsale_License {
 	 * @return array{ok:bool,data:array,error:string}
 	 */
 	public static function request( string $endpoint, array $body = [] ): array {
-		$url = self::server() . '/wp-json/' . self::NAMESPACE . '/' . ltrim( $endpoint, '/' );
+		$url = self::api() . '/' . ltrim( $endpoint, '/' );
 
 		if ( 0 !== stripos( $url, 'https://' ) ) {
 			return [ 'ok' => false, 'data' => [], 'error' => __( 'כתובת שרת הרישיונות חייבת להיות HTTPS.', 'wc-order-upsale' ) ];
@@ -391,6 +396,44 @@ class WC_Order_Upsale_License {
 					<td><code><?php echo esc_html( self::site() ); ?></code></td>
 				</tr>
 			</table>
+
+			<?php
+			$update = class_exists( 'WC_Order_Upsale_Updater' ) ? WC_Order_Upsale_Updater::status() : null;
+			if ( $has_key ) :
+				?>
+				<h2 style="margin-top:24px"><?php esc_html_e( 'עדכונים', 'wc-order-upsale' ); ?></h2>
+				<table class="form-table">
+					<tr>
+						<th scope="row"><?php esc_html_e( 'גרסה מותקנת', 'wc-order-upsale' ); ?></th>
+						<td><code><?php echo esc_html( WC_ORDER_UPSALE_VERSION ); ?></code></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'הגרסה האחרונה', 'wc-order-upsale' ); ?></th>
+						<td>
+							<?php if ( $update && ! empty( $update['remote_version'] ) ) : ?>
+								<code><?php echo esc_html( $update['remote_version'] ); ?></code>
+								<?php if ( ! empty( $update['update_available'] ) ) : ?>
+									<a class="button button-primary button-small" style="margin-inline-start:8px" href="<?php echo esc_url( self_admin_url( 'plugins.php' ) ); ?>">
+										<?php esc_html_e( 'עדכנו בעמוד התוספים', 'wc-order-upsale' ); ?>
+									</a>
+								<?php else : ?>
+									<span style="color:#125c2b">— <?php esc_html_e( 'מעודכן', 'wc-order-upsale' ); ?></span>
+								<?php endif; ?>
+							<?php else : ?>
+								<em><?php esc_html_e( 'לא ניתן לבדוק כרגע.', 'wc-order-upsale' ); ?></em>
+							<?php endif; ?>
+						</td>
+					</tr>
+				</table>
+				<p class="description" style="max-width:680px">
+					<?php esc_html_e( 'עדכונים מגיעים כמו לכל תוסף אחר: כשיוצאת גרסה חדשה היא תופיע בעמוד התוספים ובעדכוני וורדפרס, ולחיצה על "עדכן" מתקינה אותה. הבדיקה מתבצעת אוטומטית ברקע.', 'wc-order-upsale' ); ?>
+				</p>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:22px">
+					<?php wp_nonce_field( 'wc_store_enhancer_check_update' ); ?>
+					<input type="hidden" name="action" value="wc_store_enhancer_check_update">
+					<button type="submit" class="button"><?php esc_html_e( 'בדוק עדכונים עכשיו', 'wc-order-upsale' ); ?></button>
+				</form>
+			<?php endif; ?>
 
 			<?php if ( ! $has_key ) : ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
