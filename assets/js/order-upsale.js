@@ -138,6 +138,7 @@ jQuery( function ( $ ) {
 			}
 
 			$( document.body ).trigger( 'update_checkout' );
+			$( document.body ).trigger( 'order_upsale_cart_changed' );
 		} )
 		.fail( function ( jqXHR ) {
 			showTransportFailure( $item, jqXHR );
@@ -244,6 +245,13 @@ jQuery( function ( $ ) {
 				request = null;
 			} );
 		}
+
+		// Toggling an offer changes the total through admin-ajax, which the
+		// block cart store does not see.
+		$( document.body ).on( 'order_upsale_cart_changed', function () {
+			clearTimeout( timer );
+			timer = setTimeout( refresh, 300 );
+		} );
 
 		wp.data.subscribe( function () {
 			var key = totalsKey();

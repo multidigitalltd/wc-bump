@@ -126,7 +126,11 @@ class WC_Order_Upsale_Admin {
 				'discount_value'     => max( 0.0, (float) ( $data['discount_value'] ?? 0 ) ),
 				'quantity'           => max( 1, absint( $data['quantity'] ?? 1 ) ),
 				'condition_type'     => $condition_type,
-				'condition_value'    => absint( $data['condition_value'] ?? 0 ),
+				// Product and category pickers post under separate names; sharing one
+				// let the (later, empty) category select overwrite the chosen product.
+				'condition_value'    => absint( $condition_type === 'if_category'
+					? ( $data['condition_category'] ?? 0 )
+					: ( $data['condition_value'] ?? 0 ) ),
 				'condition_min_total' => max( 0.0, (float) wc_format_decimal( self::str( $data['condition_min_total'] ?? '' ) ) ),
 				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart'] ?? true ),
 				'style'              => [
@@ -550,7 +554,7 @@ class WC_Order_Upsale_Admin {
 									</select>
 								</div>
 								<div class="upsale-condition-category-wrap" <?php echo $condition_type !== 'if_category' ? 'style="display:none"' : ''; ?>>
-									<select name="upsales[<?php echo $n; ?>][condition_value]"
+									<select name="upsales[<?php echo $n; ?>][condition_category]"
 										class="upsale-condition-category-select"
 										style="min-width:280px;margin-top:8px">
 										<option value=""><?php esc_html_e( 'בחר קטגוריה...', 'wc-order-upsale' ); ?></option>
@@ -570,7 +574,7 @@ class WC_Order_Upsale_Admin {
 										value="<?php echo esc_attr( $condition_min_total ? (string) (float) $condition_min_total : '' ); ?>"
 										style="width:120px;margin-top:8px">
 									<span><?php echo esc_html( get_woocommerce_currency_symbol() ); ?></span>
-									<p class="description"><?php esc_html_e( 'סכום המוצרים בסל אחרי קופונים והנחות, כולל מע"מ ולא כולל משלוח. מוצרי Upsale שנוספו לא נספרים.', 'wc-order-upsale' ); ?></p>
+									<p class="description"><?php esc_html_e( 'סכום המוצרים בסל אחרי קופונים והנחות, כולל מע"מ ולא כולל משלוח. כולל מוצרי Upsale שכבר נוספו.', 'wc-order-upsale' ); ?></p>
 								</div>
 							</div>
 						</td>

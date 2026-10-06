@@ -589,15 +589,11 @@ class WC_Order_Upsale_Frontend {
 
 	/**
 	 * Cart products total after coupons, including tax, without shipping or fees.
-	 * Upsale lines are left out so adding an offer cannot change whether the
-	 * offers themselves qualify.
+	 * Upsale lines already in the cart count too.
 	 */
 	private function get_cart_total_for_condition(): float {
 		$total = 0.0;
 		foreach ( WC()->cart->get_cart() as $item ) {
-			if ( ! empty( $item['_order_upsale'] ) ) {
-				continue;
-			}
 			$total += (float) ( $item['line_total'] ?? 0 ) + (float) ( $item['line_tax'] ?? 0 );
 		}
 		return $total;
