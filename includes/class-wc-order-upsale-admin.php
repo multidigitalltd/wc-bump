@@ -98,7 +98,7 @@ class WC_Order_Upsale_Admin {
 			$discount_type = in_array( $data['discount_type'] ?? '', [ 'none', 'percent', 'fixed' ], true )
 				? (string) $data['discount_type'] : 'none';
 
-			$condition_type = in_array( $data['condition_type'] ?? '', [ 'always', 'if_product', 'if_category' ], true )
+			$condition_type = in_array( $data['condition_type'] ?? '', [ 'always', 'if_product', 'if_category', 'if_cart_total' ], true )
 				? (string) $data['condition_type'] : 'always';
 
 			$raw_cta   = (array) ( $data['cta_lines'] ?? [] );
@@ -127,6 +127,7 @@ class WC_Order_Upsale_Admin {
 				'quantity'           => max( 1, absint( $data['quantity'] ?? 1 ) ),
 				'condition_type'     => $condition_type,
 				'condition_value'    => absint( $data['condition_value'] ?? 0 ),
+				'condition_min_total' => max( 0.0, (float) wc_format_decimal( self::str( $data['condition_min_total'] ?? '' ) ) ),
 				'hide_if_in_cart'    => (bool) ( $data['hide_if_in_cart'] ?? true ),
 				'style'              => [
 					'bg_color'          => sanitize_hex_color( self::str( $style_in['bg_color']          ?? '' ) ) ?? '',
@@ -323,6 +324,7 @@ class WC_Order_Upsale_Admin {
 		$quantity           = $upsale['quantity']            ?? 1;
 		$condition_type     = $upsale['condition_type']      ?? 'always';
 		$condition_value    = $upsale['condition_value']     ?? 0;
+		$condition_min_total = $upsale['condition_min_total'] ?? 0;
 		$hide_if_in_cart    = $upsale['hide_if_in_cart']     ?? true;
 		$style              = wp_parse_args( $upsale['style'] ?? [], [
 			'bg_color'          => '',
@@ -531,6 +533,7 @@ class WC_Order_Upsale_Admin {
 								<option value="always"      <?php selected( $condition_type, 'always' ); ?>><?php esc_html_e( 'תמיד', 'wc-order-upsale' ); ?></option>
 								<option value="if_product"  <?php selected( $condition_type, 'if_product' ); ?>><?php esc_html_e( 'רק אם מוצר ספציפי בסל', 'wc-order-upsale' ); ?></option>
 								<option value="if_category" <?php selected( $condition_type, 'if_category' ); ?>><?php esc_html_e( 'רק אם קטגוריה ספציפית בסל', 'wc-order-upsale' ); ?></option>
+								<option value="if_cart_total" <?php selected( $condition_type, 'if_cart_total' ); ?>><?php esc_html_e( 'רק אם סכום הסל לפחות', 'wc-order-upsale' ); ?></option>
 							</select>
 							<div class="upsale-condition-value-wrap" <?php echo $condition_type === 'always' ? 'style="display:none"' : ''; ?>>
 								<div class="upsale-condition-product-wrap" <?php echo $condition_type !== 'if_product' ? 'style="display:none"' : ''; ?>>
@@ -560,6 +563,14 @@ class WC_Order_Upsale_Admin {
 											<?php endforeach; ?>
 										<?php endif; ?>
 									</select>
+								</div>
+								<div class="upsale-condition-total-wrap" <?php echo $condition_type !== 'if_cart_total' ? 'style="display:none"' : ''; ?>>
+									<input type="number" min="0" step="0.01"
+										name="upsales[<?php echo $n; ?>][condition_min_total]"
+										value="<?php echo esc_attr( $condition_min_total ? (string) (float) $condition_min_total : '' ); ?>"
+										style="width:120px;margin-top:8px">
+									<span><?php echo esc_html( get_woocommerce_currency_symbol() ); ?></span>
+									<p class="description"><?php esc_html_e( 'סכום המוצרים בסל אחרי קופונים והנחות, כולל מע"מ ולא כולל משלוח. מוצרי Upsale שנוספו לא נספרים.', 'wc-order-upsale' ); ?></p>
 								</div>
 							</div>
 						</td>

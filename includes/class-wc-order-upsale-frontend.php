@@ -519,6 +519,11 @@ class WC_Order_Upsale_Frontend {
 		$type  = $upsale['condition_type']  ?? 'always';
 		$value = absint( $upsale['condition_value'] ?? 0 );
 
+		if ( $type === 'if_cart_total' ) {
+			$min = (float) ( $upsale['condition_min_total'] ?? 0 );
+			return $min <= 0 || null === WC()->cart || $this->get_cart_total_for_condition() >= $min;
+		}
+
 		if ( $type === 'always' || ! $value ) {
 			return true;
 		}
@@ -539,6 +544,22 @@ class WC_Order_Upsale_Frontend {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Cart products total after coupons, including tax, without shipping or fees.
+	 * Upsale lines are left out so adding an offer cannot change whether the
+	 * offers themselves qualify.
+	 */
+	private function get_cart_total_for_condition(): float {
+		$total = 0.0;
+		foreach ( WC()->cart->get_cart() as $item ) {
+			if ( ! empty( $item['_order_upsale'] ) ) {
+				continue;
+			}
+			$total += (float) ( $item['line_total'] ?? 0 ) + (float) ( $item['line_tax'] ?? 0 );
+		}
+		return $total;
 	}
 
 	private function get_price_html( WC_Product $product, array $upsale ): string {
