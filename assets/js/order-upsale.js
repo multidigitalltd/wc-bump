@@ -138,6 +138,7 @@ jQuery( function ( $ ) {
 			}
 
 			$( document.body ).trigger( 'update_checkout' );
+			$( document.body ).trigger( 'order_upsale_cart_changed' );
 		} )
 		.fail( function ( jqXHR ) {
 			showTransportFailure( $item, jqXHR );
@@ -199,5 +200,73 @@ jQuery( function ( $ ) {
 			}
 		} );
 	} );
+
+	// ── Block Checkout: refresh when cart totals change ──────────
+	// Coupons, quantities and address changes go through the Store API there,
+	// so a cart-total condition is re-checked by re-rendering from the server.
+	( function () {
+		var $payload = $( '#wc-upsales-block-payload[data-refresh]' );
+		if ( ! $payload.length || ! window.wp || ! wp.data || ! wp.data.subscribe ) {
+			return;
+		}
+
+		var lastKey = null;
+		var timer   = null;
+		var request = null;
+
+		function totalsKey() {
+			var store;
+			try {
+				store = wp.data.select( 'wc/store/cart' );
+			} catch ( e ) {
+				return null;
+			}
+			var totals = store && store.getCartTotals ? store.getCartTotals() : null;
+			if ( ! totals ) {
+				return null;
+			}
+			return [ totals.total_items, totals.total_items_tax, totals.total_discount, totals.total_discount_tax ].join( '|' );
+		}
+
+		function refresh() {
+			if ( request ) {
+				request.abort();
+			}
+			request = $.post( wcOrderUpsale.ajaxUrl, {
+				action: 'order_upsale_render',
+				nonce:  wcOrderUpsale.nonce,
+			} )
+			.done( function ( response ) {
+				if ( response && response.success ) {
+					$payload.html( response.data.html );
+				}
+			} )
+			.always( function () {
+				request = null;
+			} );
+		}
+
+		// Toggling an offer changes the total through admin-ajax, which the
+		// block cart store does not see.
+		$( document.body ).on( 'order_upsale_cart_changed', function () {
+			clearTimeout( timer );
+			timer = setTimeout( refresh, 300 );
+		} );
+
+		wp.data.subscribe( function () {
+			var key = totalsKey();
+			if ( key === null || key === lastKey ) {
+				return;
+			}
+			// The first reading matches the server render; only react to changes.
+			var first = lastKey === null;
+			lastKey   = key;
+			if ( first ) {
+				return;
+			}
+			clearTimeout( timer );
+			timer = setTimeout( refresh, 300 );
+		} );
+	} )();
 
 } );

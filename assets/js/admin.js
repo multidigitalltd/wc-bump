@@ -116,6 +116,7 @@ jQuery( function ( $ ) {
 		$td.find( '.upsale-condition-value-wrap' ).toggle( val !== 'always' );
 		$td.find( '.upsale-condition-product-wrap' ).toggle( val === 'if_product' );
 		$td.find( '.upsale-condition-category-wrap' ).toggle( val === 'if_category' );
+		$td.find( '.upsale-condition-total-wrap' ).toggle( val === 'if_cart_total' );
 	} );
 
 	// ── Native color picker ────────────────────────────────────

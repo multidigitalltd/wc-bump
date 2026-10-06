@@ -42,6 +42,8 @@ class WC_Order_Upsale_Frontend {
 
 		// Resolves the chosen attributes of a variable upsale into a variation so
 		// the card can show its real price/stock before the shopper commits.
+		add_action( 'wp_ajax_order_upsale_render',                 [ $this, 'ajax_render' ] );
+		add_action( 'wp_ajax_nopriv_order_upsale_render',          [ $this, 'ajax_render' ] );
 		add_action( 'wp_ajax_order_upsale_resolve_variation',        [ $this, 'ajax_resolve_variation' ] );
 		add_action( 'wp_ajax_nopriv_order_upsale_resolve_variation', [ $this, 'ajax_resolve_variation' ] );
 
@@ -130,12 +132,16 @@ class WC_Order_Upsale_Frontend {
 		$this->display_upsales();
 		$html = ob_get_clean();
 
-		if ( ! $html ) {
+		// A cart-total condition can start passing after a coupon or quantity
+		// change, so on Block Checkout keep an (empty) container to refresh into.
+		$refresh = $this->is_block_checkout() && $this->has_cart_total_condition();
+
+		if ( ! $html && ! $refresh ) {
 			return;
 		}
 
 		// Output as a hidden container; JS will move it into the block checkout.
-		echo '<div id="wc-upsales-block-payload" style="display:none">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+		echo '<div id="wc-upsales-block-payload" style="display:none"' . ( $refresh ? ' data-refresh="1"' : '' ) . '>' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
 		?>
 		<script id="wc-upsales-block-injector">
 		(function () {
@@ -175,6 +181,37 @@ class WC_Order_Upsale_Frontend {
 		<?php
 	}
 
+	private function is_block_checkout(): bool {
+		return function_exists( 'has_block' ) && has_block( 'woocommerce/checkout', wc_get_page_id( 'checkout' ) );
+	}
+
+	private function has_cart_total_condition(): bool {
+		foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
+			if ( ! empty( $upsale['active'] ) && ( $upsale['condition_type'] ?? '' ) === 'if_cart_total' ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Re-render the upsales for Block Checkout after the cart changed through the
+	 * Store API, where no classic update_order_review refresh happens.
+	 */
+	public function ajax_render(): void {
+		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
+
+		if ( null === WC()->cart ) {
+			wp_send_json_success( [ 'html' => '' ] );
+		}
+
+		WC()->cart->calculate_totals();
+
+		ob_start();
+		$this->render_upsales();
+		wp_send_json_success( [ 'html' => ob_get_clean() ] );
+	}
+
 	/** Shortcode [wc_order_upsales] — place anywhere in Elementor or page content. */
 	public function shortcode_output(): string {
 		ob_start();
@@ -186,6 +223,10 @@ class WC_Order_Upsale_Frontend {
 		if ( ! is_checkout() ) {
 			return;
 		}
+		$this->render_upsales();
+	}
+
+	private function render_upsales(): void {
 		// Respect the dashboard module toggle.
 		if ( class_exists( 'WC_Order_Upsale_Modules' ) && ! WC_Order_Upsale_Modules::is_enabled( 'order_upsale' ) ) {
 			return;
@@ -519,6 +560,11 @@ class WC_Order_Upsale_Frontend {
 		$type  = $upsale['condition_type']  ?? 'always';
 		$value = absint( $upsale['condition_value'] ?? 0 );
 
+		if ( $type === 'if_cart_total' ) {
+			$min = (float) ( $upsale['condition_min_total'] ?? 0 );
+			return $min <= 0 || null === WC()->cart || $this->get_cart_total_for_condition() >= $min;
+		}
+
 		if ( $type === 'always' || ! $value ) {
 			return true;
 		}
@@ -539,6 +585,18 @@ class WC_Order_Upsale_Frontend {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Cart products total after coupons, including tax, without shipping or fees.
+	 * Upsale lines already in the cart count too.
+	 */
+	private function get_cart_total_for_condition(): float {
+		$total = 0.0;
+		foreach ( WC()->cart->get_cart() as $item ) {
+			$total += (float) ( $item['line_total'] ?? 0 ) + (float) ( $item['line_tax'] ?? 0 );
+		}
+		return $total;
 	}
 
 	private function get_price_html( WC_Product $product, array $upsale ): string {
