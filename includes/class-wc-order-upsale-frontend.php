@@ -42,6 +42,8 @@ class WC_Order_Upsale_Frontend {
 
 		// Resolves the chosen attributes of a variable upsale into a variation so
 		// the card can show its real price/stock before the shopper commits.
+		add_action( 'wp_ajax_order_upsale_render',                 [ $this, 'ajax_render' ] );
+		add_action( 'wp_ajax_nopriv_order_upsale_render',          [ $this, 'ajax_render' ] );
 		add_action( 'wp_ajax_order_upsale_resolve_variation',        [ $this, 'ajax_resolve_variation' ] );
 		add_action( 'wp_ajax_nopriv_order_upsale_resolve_variation', [ $this, 'ajax_resolve_variation' ] );
 
@@ -130,12 +132,16 @@ class WC_Order_Upsale_Frontend {
 		$this->display_upsales();
 		$html = ob_get_clean();
 
-		if ( ! $html ) {
+		// A cart-total condition can start passing after a coupon or quantity
+		// change, so on Block Checkout keep an (empty) container to refresh into.
+		$refresh = $this->is_block_checkout() && $this->has_cart_total_condition();
+
+		if ( ! $html && ! $refresh ) {
 			return;
 		}
 
 		// Output as a hidden container; JS will move it into the block checkout.
-		echo '<div id="wc-upsales-block-payload" style="display:none">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+		echo '<div id="wc-upsales-block-payload" style="display:none"' . ( $refresh ? ' data-refresh="1"' : '' ) . '>' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
 		?>
 		<script id="wc-upsales-block-injector">
 		(function () {
@@ -175,6 +181,37 @@ class WC_Order_Upsale_Frontend {
 		<?php
 	}
 
+	private function is_block_checkout(): bool {
+		return function_exists( 'has_block' ) && has_block( 'woocommerce/checkout', wc_get_page_id( 'checkout' ) );
+	}
+
+	private function has_cart_total_condition(): bool {
+		foreach ( WC_Order_Upsale_Admin::get_upsales() as $upsale ) {
+			if ( ! empty( $upsale['active'] ) && ( $upsale['condition_type'] ?? '' ) === 'if_cart_total' ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Re-render the upsales for Block Checkout after the cart changed through the
+	 * Store API, where no classic update_order_review refresh happens.
+	 */
+	public function ajax_render(): void {
+		check_ajax_referer( 'order_upsale_toggle', 'nonce' );
+
+		if ( null === WC()->cart ) {
+			wp_send_json_success( [ 'html' => '' ] );
+		}
+
+		WC()->cart->calculate_totals();
+
+		ob_start();
+		$this->render_upsales();
+		wp_send_json_success( [ 'html' => ob_get_clean() ] );
+	}
+
 	/** Shortcode [wc_order_upsales] — place anywhere in Elementor or page content. */
 	public function shortcode_output(): string {
 		ob_start();
@@ -186,6 +223,10 @@ class WC_Order_Upsale_Frontend {
 		if ( ! is_checkout() ) {
 			return;
 		}
+		$this->render_upsales();
+	}
+
+	private function render_upsales(): void {
 		// Respect the dashboard module toggle.
 		if ( class_exists( 'WC_Order_Upsale_Modules' ) && ! WC_Order_Upsale_Modules::is_enabled( 'order_upsale' ) ) {
 			return;
